@@ -122,7 +122,9 @@ blackbox_encoding_unittest_SRC :=  \
 
 cli_unittest_SRC := \
 		$(USER_DIR)/cli/cli.c \
+		$(USER_DIR)/common/bitarray.c \
 		$(USER_DIR)/common/crc.c \
+		$(USER_DIR)/common/parse.c \
 		$(USER_DIR)/common/printf.c \
 		$(USER_DIR)/common/streambuf.c \
 		$(USER_DIR)/common/maths.c \
@@ -131,7 +133,9 @@ cli_unittest_SRC := \
 		$(USER_DIR)/io/gps.c \
 		$(USER_DIR)/io/serial_resource.c \
 		$(USER_DIR)/pg/pg.c \
+		$(USER_DIR)/fc/rc_modes.c \
 		$(USER_DIR)/fc/runtime_config.c \
+		$(USER_DIR)/drivers/buf_writer.c \
 		$(USER_DIR)/drivers/serial.c \
 		$(USER_DIR)/drivers/serial_impl.c \
 		$(USER_DIR)/common/typeconversion.c
@@ -139,6 +143,7 @@ cli_unittest_SRC := \
 cli_unittest_DEFINES := \
 		USE_OSD= \
 		USE_CLI= \
+		USE_CLI_BATCH= \
 		SystemCoreClock=1000000
 
 cms_unittest_SRC := \

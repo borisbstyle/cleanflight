@@ -25,6 +25,7 @@
 #include <string.h>
 #include <math.h>
 #include <ctype.h>
+#include <limits.h>
 
 #include "platform.h"
 
@@ -47,6 +48,7 @@ bool cliMode = false;
 #include "common/axis.h"
 #include "common/color.h"
 #include "common/maths.h"
+#include "common/parse.h"
 #include "common/printf.h"
 #include "common/printf_serial.h"
 #include "common/strtol.h"
@@ -173,6 +175,7 @@ bool cliMode = false;
 #include "telemetry/telemetry.h"
 
 #include "cli.h"
+#include "cli_impl.h"
 
 static serialPort_t *cliPort = NULL;
 static bool cliInteractive = false;
@@ -183,8 +186,8 @@ static timeMs_t cliEntryTime = 0;
 #define CLI_OUT_BUFFER_SIZE 64
 
 static bufWriter_t cliWriterDesc;
-static bufWriter_t *cliWriter = NULL;
-static bufWriter_t *cliErrorWriter = NULL;
+STATIC_UNIT_TESTED bufWriter_t *cliWriter = NULL;
+STATIC_UNIT_TESTED bufWriter_t *cliErrorWriter = NULL;
 static uint8_t cliWriteBuffer[CLI_OUT_BUFFER_SIZE];
 
 static char cliBuffer[CLI_IN_BUFFER_SIZE];
@@ -197,8 +200,8 @@ static int8_t pidProfileIndexToUse = CURRENT_PROFILE_INDEX;
 static int8_t rateProfileIndexToUse = CURRENT_PROFILE_INDEX;
 
 #ifdef USE_CLI_BATCH
-static bool commandBatchActive = false;
-static bool commandBatchError = false;
+STATIC_UNIT_TESTED bool commandBatchActive = false;
+STATIC_UNIT_TESTED bool commandBatchError = false;
 #endif
 
 #if defined(USE_BOARD_INFO)
@@ -305,20 +308,7 @@ static const char *configurationStates[] = {
     [CONFIGURATION_STATE_CONFIGURED] = "CONFIGURED"
 };
 
-typedef enum dumpFlags_e {
-    DUMP_MASTER = (1 << 0),
-    DUMP_PROFILE = (1 << 1),
-    DUMP_RATES = (1 << 2),
-    DUMP_ALL = (1 << 3),
-    DO_DIFF = (1 << 4),
-    SHOW_DEFAULTS = (1 << 5),
-    HIDE_UNUSED = (1 << 6),
-    HARDWARE_ONLY = (1 << 7),
-    BARE = (1 << 8),
-} dumpFlags_t;
-
 static void cliExit(const bool reboot);
-typedef bool printFn(dumpFlags_t dumpMask, bool equalsDefault, const char *format, ...);
 
 typedef enum {
     REBOOT_TARGET_FIRMWARE,
@@ -1002,6 +992,11 @@ static void cliShowArgumentRangeError(const char *cmdName, char *name, int min, 
     }
 }
 
+static void cliShowArgumentNotANumberError(const char *cmdName, const char *name)
+{
+    cliPrintErrorLinef(cmdName, "%s IS NOT A NUMBER", name ? name : "ARGUMENT");
+}
+
 static const char *nextArg(const char *currentArg)
 {
     const char *ptr = strchr(currentArg, ' ');
@@ -1012,25 +1007,49 @@ static const char *nextArg(const char *currentArg)
     return ptr;
 }
 
-static const char *processChannelRangeArgs(const char *ptr, channelRange_t *range, uint8_t *validArgumentCount)
+/**
+ * @brief Converts parsing error into a message and prints it.
+ */
+static void parseResultPrintError(parseArgsResult_t *res, const char *cmdName)
 {
-    for (uint32_t argIndex = 0; argIndex < 2; argIndex++) {
-        ptr = nextArg(ptr);
-        if (ptr) {
-            int val = atoi(ptr);
-            val = CHANNEL_VALUE_TO_STEP(val);
-            if (val >= MIN_MODE_RANGE_STEP && val <= MAX_MODE_RANGE_STEP) {
-                if (argIndex == 0) {
-                    range->startStep = val;
-                } else {
-                    range->endStep = val;
-                }
-                (*validArgumentCount)++;
-            }
+    switch (res->status) {
+    case PARSE_STATUS_OK:
+        break;
+    case PARSE_STATUS_INT_NOT_IN_RANGE:
+        cliShowArgumentRangeError(
+            cmdName, (char *)res->errArgName, res->rangeStart, res->rangeEnd - 1
+        );
+        break;
+    case PARSE_STATUS_INVALID_VARIANT:
+        cliPrintErrorLinef(cmdName, "%s INVALID VARIANT", (char *)res->errArgName);
+        break;
+    case PARSE_STATUS_INT_CONVERT_ERR:
+        cliPrintErrorLinef(cmdName, "%s CANNOT BE CONVERTED", (char *)res->errArgName);
+        break;
+    case PARSE_STATUS_NOT_A_NUMBER:
+        cliShowArgumentNotANumberError(cmdName, (char *)res->errArgName);
+        break;
+    case PARSE_STATUS_CUSTOM_ERR:
+        cliPrintErrorLinef(cmdName, "%s %s", (char *)res->errArgName, res->errMsg);
+        break;
+    case PARSE_STATUS_END_OF_LINE:
+    case PARSE_STATUS_EMPTY_ARGS:
+        cliPrintErrorLinef(cmdName, "INVALID ARGUMENT COUNT");
+        break;
+    case PARSE_STATUS_TOO_MANY_ARGS:
+        cliPrintErrorLinef(cmdName, "TOO MANY ARGUMENTS");
+        break;
+    case PARSE_STATUS_MISSING_SEP:
+        if (res->errArgName) {
+            cliPrintErrorLinef(cmdName, "MISSING SEPARATOR AFTER %s", (char *)res->errArgName);
+        } else {
+            cliPrintErrorLinef(cmdName, "MISSING SEPARATOR");
         }
+        break;
+    case PARSE_STATUS_INTERNAL_ERR:
+        cliPrintErrorLinef(cmdName, "INTERNAL ERROR");
+        break;
     }
-
-    return ptr;
 }
 
 // Check if a string's length is zero
@@ -1157,9 +1176,10 @@ static void cliRxFailsafe(const char *cmdName, char *cmdline)
     }
 }
 
-static void printAux(dumpFlags_t dumpMask, const modeActivationCondition_t *modeActivationConditions, const modeActivationCondition_t *defaultModeActivationConditions, const char *headingStr)
+static const char *auxFormat = "aux %u %u %u %u %u %u %u";
+
+STATIC_UNIT_TESTED void printAux(dumpFlags_t dumpMask, const modeActivationCondition_t *modeActivationConditions, const modeActivationCondition_t *defaultModeActivationConditions, const char *headingStr)
 {
-    const char *format = "aux %u %u %u %u %u %u %u";
     // print out aux channel settings
     headingStr = cliPrintSectionHeading(dumpMask, false, headingStr);
     for (uint32_t i = 0; i < MAX_MODE_ACTIVATION_CONDITION_COUNT; i++) {
@@ -1172,7 +1192,7 @@ static void printAux(dumpFlags_t dumpMask, const modeActivationCondition_t *mode
             const box_t *box = findBoxByBoxId(macDefault->modeId);
             const box_t *linkedTo = findBoxByBoxId(macDefault->linkedTo);
             if (box) {
-                cliDefaultPrintLinef(dumpMask, equalsDefault, format,
+                cliDefaultPrintLinef(dumpMask, equalsDefault, auxFormat,
                     i,
                     box->permanentId,
                     macDefault->auxChannelIndex,
@@ -1186,7 +1206,7 @@ static void printAux(dumpFlags_t dumpMask, const modeActivationCondition_t *mode
         const box_t *box = findBoxByBoxId(mac->modeId);
         const box_t *linkedTo = findBoxByBoxId(mac->linkedTo);
         if (box) {
-            cliDumpPrintLinef(dumpMask, equalsDefault, format,
+            cliDumpPrintLinef(dumpMask, equalsDefault, auxFormat,
                 i,
                 box->permanentId,
                 mac->auxChannelIndex,
@@ -1199,76 +1219,85 @@ static void printAux(dumpFlags_t dumpMask, const modeActivationCondition_t *mode
     }
 }
 
-static void cliAux(const char *cmdName, char *cmdline)
+static convertResult_t convertBoxPermanentIdToBoxId(long int permanentBoxId)
 {
-    int i, val = 0;
-    const char *ptr;
-
-    if (isEmpty(cmdline)) {
-        printAux(DUMP_MASTER, modeActivationConditions(0), NULL, NULL);
-    } else {
-        ptr = cmdline;
-        i = atoi(ptr++);
-        if (i < MAX_MODE_ACTIVATION_CONDITION_COUNT) {
-            modeActivationCondition_t *mac = modeActivationConditionsMutable(i);
-            uint8_t validArgumentCount = 0;
-            ptr = nextArg(ptr);
-            if (ptr) {
-                val = atoi(ptr);
-                const box_t *box = findBoxByPermanentId(val);
-                if (box) {
-                    mac->modeId = box->boxId;
-                    validArgumentCount++;
-                }
-            }
-            ptr = nextArg(ptr);
-            if (ptr) {
-                val = atoi(ptr);
-                if (val >= 0 && val < MAX_AUX_CHANNEL_COUNT) {
-                    mac->auxChannelIndex = val;
-                    validArgumentCount++;
-                }
-            }
-            ptr = processChannelRangeArgs(ptr, &mac->range, &validArgumentCount);
-            ptr = nextArg(ptr);
-            if (ptr) {
-                val = atoi(ptr);
-                if (val == MODELOGIC_OR || val == MODELOGIC_AND) {
-                    mac->modeLogic = val;
-                    validArgumentCount++;
-                }
-            }
-            ptr = nextArg(ptr);
-            if (ptr) {
-                val = atoi(ptr);
-                const box_t *box = findBoxByPermanentId(val);
-                if (box) {
-                    mac->linkedTo = box->boxId;
-                    validArgumentCount++;
-                }
-            }
-            if (validArgumentCount == 4) { // for backwards compatibility
-                mac->modeLogic = MODELOGIC_OR;
-                mac->linkedTo = 0;
-            } else if (validArgumentCount == 5) { // for backwards compatibility
-                mac->linkedTo = 0;
-            } else if (validArgumentCount != 6) {
-                memset(mac, 0, sizeof(modeActivationCondition_t));
-            }
-            analyzeModeActivationConditions();
-            cliPrintLinef( "aux %u %u %u %u %u %u %u",
-                i,
-                findBoxByBoxId(mac->modeId)->permanentId,
-                mac->auxChannelIndex,
-                MODE_STEP_TO_CHANNEL_VALUE(mac->range.startStep),
-                MODE_STEP_TO_CHANNEL_VALUE(mac->range.endStep),
-                mac->modeLogic,
-                findBoxByBoxId(mac->linkedTo)->permanentId
-            );
-        } else {
-            cliShowArgumentRangeError(cmdName, "INDEX", 0, MAX_MODE_ACTIVATION_CONDITION_COUNT - 1);
-        }
+    const box_t *box = findBoxByPermanentId(permanentBoxId);
+    if (!box) {
+        // cliPrintErrorLinef(cmdName, "BOX NOT MATCHED TO ANY BOX ID");
+        return (convertResult_t) { .isOk = false };
     }
+    return (convertResult_t) { .isOk = true, .value = box->boxId };
+}
+
+static convertResult_t convertChannelValueToStep(long int channelValue)
+{
+    if (channelValue < CHANNEL_RANGE_MIN || channelValue > CHANNEL_RANGE_MAX) {
+        return (convertResult_t) { .isOk = false, .errMsg = "NOT BETWEEN 900 AND 2100" };
+    }
+    return (convertResult_t) { .isOk = true, .value = CHANNEL_VALUE_TO_STEP(channelValue) };
+}
+
+STATIC_UNIT_TESTED void cliAux(const char *cmdName, char *cmdline)
+{
+    parseArg_t ixArgs[] = {
+        argIntInRange(true, "INDEX", 0, MAX_MODE_ACTIVATION_CONDITION_COUNT),
+    };
+    parsedArg_t ixParsedArgs[ARRAYLEN(ixArgs)];
+    parseArgsResult_t ixRes = parseArgs(cmdline, ixArgs, ARRAYLEN(ixArgs), ixParsedArgs, false);
+    if (ixRes.status == PARSE_STATUS_EMPTY_ARGS) {
+        printAux(DUMP_MASTER, modeActivationConditions(0), NULL, NULL);
+        return;
+    }
+    if (ixRes.status != PARSE_STATUS_OK) {
+        parseResultPrintError(&ixRes, cmdName);
+        return;
+    }
+    long int ix = ixParsedArgs[0].intValue;
+    modeActivationCondition_t *mac = modeActivationConditionsMutable(ix);
+
+    parseArg_t args[] = {
+        argIntConvert_storeUint8(
+            false, "BOX", &convertBoxPermanentIdToBoxId, (uint8_t *)&mac->modeId
+        ),
+        argIntInRange_storeUint8(
+            false, "CHANNEL_INDEX", 0, MAX_AUX_CHANNEL_COUNT, &mac->auxChannelIndex
+        ),
+        argIntConvert_storeUint8(
+            false, "CHANNEL_RANGE.START", &convertChannelValueToStep, &mac->range.startStep
+        ),
+        argIntConvert_storeUint8(
+            true, "CHANNEL_RANGE.END", &convertChannelValueToStep, &mac->range.endStep
+        ),
+        argIntInRange_storeUint8(
+            true, "MODE_LOGIC", 0, 2, (uint8_t *)&mac->modeLogic
+        ),
+        argIntConvert_storeUint8(
+            true, "LINKED_TO", &convertBoxPermanentIdToBoxId, (uint8_t *)&mac->linkedTo
+        ),
+    };
+    parsedArg_t parsedArgs[ARRAYLEN(args)];
+    parseArgsResult_t res = parseArgs(
+        ixRes.rest,
+        args,
+        ARRAYLEN(args),
+        parsedArgs,
+        true
+    );
+    if (res.status != PARSE_STATUS_OK && res.status != PARSE_STATUS_EMPTY_ARGS) {
+        parseResultPrintError(&res, cmdName);
+        return;
+    }
+
+    cliPrintLinef(
+        auxFormat,
+        ix,
+        findBoxByBoxId(mac->modeId)->permanentId,
+        mac->auxChannelIndex,
+        MODE_STEP_TO_CHANNEL_VALUE(mac->range.startStep),
+        MODE_STEP_TO_CHANNEL_VALUE(mac->range.endStep),
+        mac->modeLogic,
+        findBoxByBoxId(mac->linkedTo)->permanentId
+    );
 }
 
 static void printSerial(dumpFlags_t dumpMask, const serialConfig_t *serialConfig, const serialConfig_t *serialConfigDefault, const char *headingStr)
@@ -1671,9 +1700,10 @@ static void cliSerialPassthrough(const char *cmdName, char *cmdline)
 }
 #endif
 
+static const char *adjRangeFormat = "adjrange %u 0 %u %u %u %u %u %u %u";
+
 static void printAdjustmentRange(dumpFlags_t dumpMask, const adjustmentRange_t *adjustmentRanges, const adjustmentRange_t *defaultAdjustmentRanges, const char *headingStr)
 {
-    const char *format = "adjrange %u 0 %u %u %u %u %u %u %u";
     // print out adjustment ranges channel settings
     headingStr = cliPrintSectionHeading(dumpMask, false, headingStr);
     for (uint32_t i = 0; i < MAX_ADJUSTMENT_RANGE_COUNT; i++) {
@@ -1683,7 +1713,7 @@ static void printAdjustmentRange(dumpFlags_t dumpMask, const adjustmentRange_t *
             const adjustmentRange_t *arDefault = &defaultAdjustmentRanges[i];
             equalsDefault = !memcmp(ar, arDefault, sizeof(*ar));
             headingStr = cliPrintSectionHeading(dumpMask, !equalsDefault, headingStr);
-            cliDefaultPrintLinef(dumpMask, equalsDefault, format,
+            cliDefaultPrintLinef(dumpMask, equalsDefault, adjRangeFormat,
                 i,
                 arDefault->auxChannelIndex,
                 MODE_STEP_TO_CHANNEL_VALUE(arDefault->range.startStep),
@@ -1694,7 +1724,7 @@ static void printAdjustmentRange(dumpFlags_t dumpMask, const adjustmentRange_t *
                 arDefault->adjustmentScale
             );
         }
-        cliDumpPrintLinef(dumpMask, equalsDefault, format,
+        cliDumpPrintLinef(dumpMask, equalsDefault, adjRangeFormat,
             i,
             ar->auxChannelIndex,
             MODE_STEP_TO_CHANNEL_VALUE(ar->range.startStep),
@@ -1707,94 +1737,69 @@ static void printAdjustmentRange(dumpFlags_t dumpMask, const adjustmentRange_t *
     }
 }
 
-static void cliAdjustmentRange(const char *cmdName, char *cmdline)
+STATIC_UNIT_TESTED void cliAdjustmentRange(const char *cmdName, char *cmdline)
 {
-    const char *format = "adjrange %u 0 %u %u %u %u %u %u %u";
-    const char *ptr;
-
-    if (isEmpty(cmdline)) {
+    parseArg_t ixArgs[] = {
+        argIntInRange(true, "INDEX", 0, MAX_ADJUSTMENT_RANGE_COUNT),
+    };
+    parsedArg_t ixParsedArgs[ARRAYLEN(ixArgs)];
+    parseArgsResult_t ixRes = parseArgs(cmdline, ixArgs, ARRAYLEN(ixArgs), ixParsedArgs, false);
+    if (ixRes.status == PARSE_STATUS_EMPTY_ARGS) {
         printAdjustmentRange(DUMP_MASTER, adjustmentRanges(0), NULL, NULL);
-    } else {
-        ptr = cmdline;
-        int i = atoi(ptr++);
-        if (i < MAX_ADJUSTMENT_RANGE_COUNT) {
-            adjustmentRange_t *ar = adjustmentRangesMutable(i);
-            uint8_t validArgumentCount = 0;
-
-            ptr = nextArg(ptr);
-            if (ptr) {
-                // Was: slot
-                // Keeping the parameter to retain backwards compatibility for the command format.
-                validArgumentCount++;
-            }
-            ptr = nextArg(ptr);
-            if (ptr) {
-                int val = atoi(ptr);
-                if (val >= 0 && val < MAX_AUX_CHANNEL_COUNT) {
-                    ar->auxChannelIndex = val;
-                    validArgumentCount++;
-                }
-            }
-
-            ptr = processChannelRangeArgs(ptr, &ar->range, &validArgumentCount);
-
-            ptr = nextArg(ptr);
-            if (ptr) {
-                int val = atoi(ptr);
-                if (val >= 0 && val < ADJUSTMENT_FUNCTION_COUNT) {
-                    ar->adjustmentConfig = val;
-                    validArgumentCount++;
-                }
-            }
-            ptr = nextArg(ptr);
-            if (ptr) {
-                int val = atoi(ptr);
-                if (val >= 0 && val < MAX_AUX_CHANNEL_COUNT) {
-                    ar->auxSwitchChannelIndex = val;
-                    validArgumentCount++;
-                }
-            }
-
-            if (validArgumentCount != 6) {
-                memset(ar, 0, sizeof(adjustmentRange_t));
-                cliShowInvalidArgumentCountError(cmdName);
-                return;
-            }
-
-            // Optional arguments
-            ar->adjustmentCenter = 0;
-            ar->adjustmentScale = 0;
-
-            ptr = nextArg(ptr);
-            if (ptr) {
-                int val = atoi(ptr);
-                ar->adjustmentCenter = val;
-                validArgumentCount++;
-            }
-            ptr = nextArg(ptr);
-            if (ptr) {
-                int val = atoi(ptr);
-                ar->adjustmentScale = val;
-                validArgumentCount++;
-            }
-
-            activeAdjustmentRangeReset();
-
-            cliDumpPrintLinef(0, false, format,
-                i,
-                ar->auxChannelIndex,
-                MODE_STEP_TO_CHANNEL_VALUE(ar->range.startStep),
-                MODE_STEP_TO_CHANNEL_VALUE(ar->range.endStep),
-                ar->adjustmentConfig,
-                ar->auxSwitchChannelIndex,
-                ar->adjustmentCenter,
-                ar->adjustmentScale
-            );
-
-        } else {
-            cliShowArgumentRangeError(cmdName, "INDEX", 0, MAX_ADJUSTMENT_RANGE_COUNT - 1);
-        }
+        return;
     }
+    if (ixRes.status != PARSE_STATUS_OK) {
+        parseResultPrintError(&ixRes, cmdName);
+        return;
+    }
+    long int ix = ixParsedArgs[0].intValue;
+    adjustmentRange_t *ar = adjustmentRangesMutable(ix);
+
+    parseArg_t args[] = {
+        argIntInRange(false, "SLOT", 0, 1),
+        argIntInRange_storeUint8(
+            false, "CHANNEL_INDEX", 0, MAX_AUX_CHANNEL_COUNT, &ar->auxChannelIndex
+        ),
+        argIntConvert_storeUint8(
+            false, "CHANNEL_RANGE.START", &convertChannelValueToStep, &ar->range.startStep
+        ),
+        argIntConvert_storeUint8(
+            false, "CHANNEL_RANGE.END", &convertChannelValueToStep, &ar->range.endStep
+        ),
+        argIntInRange_storeUint8(
+            false, "ADJUSTMENT_FUNCTION_INDEX", 0, ADJUSTMENT_FUNCTION_COUNT, &ar->adjustmentConfig
+        ),
+        argIntInRange_storeUint8(
+            true, "SWITCH_CHANNEL_INDEX", 0, MAX_AUX_CHANNEL_COUNT, &ar->auxSwitchChannelIndex
+        ),
+        argInt_storeUint16(true, "ADJUSTMENT_CENTER", &ar->adjustmentCenter),
+        argInt_storeUint16(true, "ADJUSTMENT_SCALE", &ar->adjustmentScale),
+    };
+    parsedArg_t parsedArgs[ARRAYLEN(args)];
+    parseArgsResult_t res = parseArgs(
+        ixRes.rest,
+        args,
+        ARRAYLEN(args),
+        parsedArgs,
+        true
+    );
+    if (res.status != PARSE_STATUS_OK && res.status != PARSE_STATUS_EMPTY_ARGS) {
+        parseResultPrintError(&res, cmdName);
+        return;
+    }
+
+    activeAdjustmentRangeReset();
+
+    cliDumpPrintLinef(0, false, adjRangeFormat,
+        ix,
+        ar->auxChannelIndex,
+        MODE_STEP_TO_CHANNEL_VALUE(ar->range.startStep),
+        MODE_STEP_TO_CHANNEL_VALUE(ar->range.endStep),
+        ar->adjustmentConfig,
+        ar->auxSwitchChannelIndex,
+        ar->adjustmentCenter,
+        ar->adjustmentScale
+    );
 }
 
 #ifndef USE_QUAD_MIXER_ONLY
@@ -2002,35 +2007,42 @@ static void printLed(dumpFlags_t dumpMask, const ledConfig_t *ledConfigs, const 
     }
 }
 
-static void cliLed(const char *cmdName, char *cmdline)
-{
-    const char *format = "led %u %s";
-    char ledConfigBuffer[20];
-    int i;
-    const char *ptr;
+const char *ledFormat = "led %u %s";
 
-    if (isEmpty(cmdline)) {
+STATIC_UNIT_TESTED void cliLed(const char *cmdName, char *cmdline)
+{
+    parseArg_t ixArgs[] = {
+        argIntInRange(true, "INDEX", 0, LED_STRIP_MAX_LENGTH),
+    };
+    parsedArg_t parsedIxArgs[ARRAYLEN(ixArgs)];
+    parseArgsResult_t ixRes = parseArgs(cmdline, ixArgs, ARRAYLEN(ixArgs), parsedIxArgs, false);
+    if (ixRes.status == PARSE_STATUS_EMPTY_ARGS) {
         printLed(DUMP_MASTER, ledStripStatusModeConfig()->ledConfigs, NULL, NULL);
+        return;
+    }
+    if (ixRes.status != PARSE_STATUS_OK) {
+        parseResultPrintError(&ixRes, cmdName);
+        return;
+    }
+    long int ix = parsedIxArgs[0].intValue;
+
+    if (parseLedStripConfig(ix, ixRes.rest)) {
+        char ledConfigBuffer[20];
+        generateLedConfig(
+            (ledConfig_t *)&ledStripStatusModeConfig()->ledConfigs[ix],
+            ledConfigBuffer,
+            sizeof(ledConfigBuffer)
+        );
+        cliDumpPrintLinef(0, false, ledFormat, ix, ledConfigBuffer);
     } else {
-        ptr = cmdline;
-        i = atoi(ptr);
-        if (i >= 0 && i < LED_STRIP_MAX_LENGTH) {
-            ptr = nextArg(cmdline);
-            if (parseLedStripConfig(i, ptr)) {
-                generateLedConfig((ledConfig_t *)&ledStripStatusModeConfig()->ledConfigs[i], ledConfigBuffer, sizeof(ledConfigBuffer));
-                cliDumpPrintLinef(0, false, format, i, ledConfigBuffer);
-            } else {
-                cliShowParseError(cmdName);
-            }
-        } else {
-            cliShowArgumentRangeError(cmdName, "INDEX", 0, LED_STRIP_MAX_LENGTH - 1);
-        }
+        cliShowArgumentRangeError(cmdName, "INDEX", 0, LED_STRIP_MAX_LENGTH - 1);
     }
 }
 
+static const char *colorFormat = "color %u %d,%u,%u";
+
 static void printColor(dumpFlags_t dumpMask, const hsvColor_t *colors, const hsvColor_t *defaultColors, const char *headingStr)
 {
-    const char *format = "color %u %d,%u,%u";
     headingStr = cliPrintSectionHeading(dumpMask, false, headingStr);
     for (uint32_t i = 0; i < LED_CONFIGURABLE_COLOR_COUNT; i++) {
         const hsvColor_t *color = &colors[i];
@@ -2039,32 +2051,46 @@ static void printColor(dumpFlags_t dumpMask, const hsvColor_t *colors, const hsv
             const hsvColor_t *colorDefault = &defaultColors[i];
             equalsDefault = !memcmp(color, colorDefault, sizeof(*color));
             headingStr = cliPrintSectionHeading(dumpMask, !equalsDefault, headingStr);
-            cliDefaultPrintLinef(dumpMask, equalsDefault, format, i,colorDefault->h, colorDefault->s, colorDefault->v);
+            cliDefaultPrintLinef(dumpMask, equalsDefault, colorFormat, i,colorDefault->h, colorDefault->s, colorDefault->v);
         }
-        cliDumpPrintLinef(dumpMask, equalsDefault, format, i, color->h, color->s, color->v);
+        cliDumpPrintLinef(dumpMask, equalsDefault, colorFormat, i, color->h, color->s, color->v);
     }
 }
 
-static void cliColor(const char *cmdName, char *cmdline)
+STATIC_UNIT_TESTED void cliColor(const char *cmdName, char *cmdline)
 {
-    const char *format = "color %u %d,%u,%u";
-    if (isEmpty(cmdline)) {
+    parseArg_t ixArgs[] = {
+        argIntInRange(true, "INDEX", 0, LED_CONFIGURABLE_COLOR_COUNT),
+    };
+    parsedArg_t parsedIxArgs[ARRAYLEN(ixArgs)];
+    parseArgsResult_t ixRes = parseArgs(cmdline, ixArgs, ARRAYLEN(ixArgs), parsedIxArgs, false);
+    if (ixRes.status == PARSE_STATUS_EMPTY_ARGS) {
         printColor(DUMP_MASTER, ledStripStatusModeConfig()->colors, NULL, NULL);
-    } else {
-        const char *ptr = cmdline;
-        const int i = atoi(ptr);
-        if (i < LED_CONFIGURABLE_COLOR_COUNT) {
-            ptr = nextArg(cmdline);
-            if (parseColor(i, ptr)) {
-                const hsvColor_t *color = &ledStripStatusModeConfig()->colors[i];
-                cliDumpPrintLinef(0, false, format, i, color->h, color->s, color->v);
-            } else {
-                cliShowParseError(cmdName);
-            }
-        } else {
-            cliShowArgumentRangeError(cmdName, "INDEX", 0, LED_CONFIGURABLE_COLOR_COUNT - 1);
-        }
+        return;
     }
+    if (ixRes.status != PARSE_STATUS_OK) {
+        parseResultPrintError(&ixRes, cmdName);
+        return;
+    }
+    long int ix = parsedIxArgs[0].intValue;
+
+    hsvColor_t *color = &ledStripStatusModeConfigMutable()->colors[ix];
+
+    parseArg_t args[] = {
+        argIntInRange_storeUint16(false, "COLOR.HUE", 0, HSV_HUE_MAX + 1, &color->h),
+        argSep(','),
+        argIntInRange_storeUint8(false, "COLOR.SATURATION", 0, HSV_SATURATION_MAX + 1, &color->s),
+        argSep(','),
+        argIntInRange_storeUint8(true, "COLOR.VALUE", 0, HSV_VALUE_MAX + 1 , &color->v),
+    };
+    parsedArg_t parsedArgs[ARRAYLEN(args)];
+    parseArgsResult_t res = parseArgs(ixRes.rest, args, ARRAYLEN(args), parsedArgs, false);
+    if (res.status != PARSE_STATUS_OK) {
+        parseResultPrintError(&res, cmdName);
+        return;
+    }
+
+    cliDumpPrintLinef(0, false, colorFormat, ix, color->h, color->s, color->v);
 }
 
 static void printModeColor(dumpFlags_t dumpMask, const ledStripStatusModeConfig_t *ledStripStatusModeConfig, const ledStripStatusModeConfig_t *defaultLedStripConfig, const char *headingStr)
@@ -2651,6 +2677,27 @@ static void cliFlashRead(const char *cmdName, char *cmdline)
 #endif // USE_FLASHFS
 
 #ifdef USE_VTX_CONTROL
+static const char *processChannelRangeArgs(const char *ptr, channelRange_t *range, uint8_t *validArgumentCount)
+{
+    for (uint32_t argIndex = 0; argIndex < 2; argIndex++) {
+        ptr = nextArg(ptr);
+        if (ptr) {
+            int val = atoi(ptr);
+            val = CHANNEL_VALUE_TO_STEP(val);
+            if (val >= MIN_MODE_RANGE_STEP && val <= MAX_MODE_RANGE_STEP) {
+                if (argIndex == 0) {
+                    range->startStep = val;
+                } else {
+                    range->endStep = val;
+                }
+                (*validArgumentCount)++;
+            }
+        }
+    }
+
+    return ptr;
+}
+
 static void printVtx(dumpFlags_t dumpMask, const vtxConfig_t *vtxConfig, const vtxConfig_t *vtxConfigDefault, const char *headingStr)
 {
     // print out vtx channel settings
@@ -4231,23 +4278,38 @@ static void resetCommandBatch(void)
     commandBatchError = false;
 }
 
-static void cliBatch(const char *cmdName, char *cmdline)
+STATIC_UNIT_TESTED void cliBatch(const char *cmdName, char *cmdline)
 {
-    if (strncasecmp(cmdline, "start", 5) == 0) {
+    enum batchCommand_e {
+        BATCH_COMMAND_START = 0,
+        BATCH_COMMAND_END,
+    } batchCmd = 0;
+    parseArg_t args[] = {
+        argStringVariant_storeUint8(true, "BATCH_COMMAND", "start|end", (uint8_t *)&batchCmd),
+    };
+    parsedArg_t parsedArgs[ARRAYLEN(args)];
+    parseArgsResult_t res = parseArgs(cmdline, args, ARRAYLEN(args), parsedArgs, false);
+    if (res.status != PARSE_STATUS_OK) {
+        parseResultPrintError(&res, cmdName);
+        return;
+    }
+
+    switch (batchCmd) {
+    case BATCH_COMMAND_START:
         if (!commandBatchActive) {
             commandBatchActive = true;
             commandBatchError = false;
         }
         cliPrintLine("Command batch started");
-    } else if (strncasecmp(cmdline, "end", 3) == 0) {
+        break;
+    case BATCH_COMMAND_END:
         if (commandBatchActive && commandBatchError) {
             cliPrintCommandBatchWarning(cmdName, NULL);
         } else {
             cliPrintLine("Command batch ended");
         }
         resetCommandBatch();
-    } else {
-        cliPrintErrorLinef(cmdName, "Invalid option");
+        break;
     }
 }
 #endif
@@ -6469,7 +6531,7 @@ static void cliDump(const char *cmdName, char *cmdline)
     printConfig(cmdName, cmdline, false);
 }
 
-static void cliDiff(const char *cmdName, char *cmdline)
+STATIC_UNIT_TESTED void cliDiff(const char *cmdName, char *cmdline)
 {
     printConfig(cmdName, cmdline, true);
 }
@@ -6531,7 +6593,7 @@ typedef struct {
 }
 #endif
 
-static void cliHelp(const char *cmdName, char *cmdline);
+STATIC_UNIT_TESTED void cliHelp(const char *cmdName, char *cmdline);
 
 // should be sorted a..z for bsearch()
 const clicmd_t cmdTable[] = {
@@ -6692,7 +6754,7 @@ const clicmd_t cmdTable[] = {
 #endif
 };
 
-static void cliHelp(const char *cmdName, char *cmdline)
+STATIC_UNIT_TESTED void cliHelp(const char *cmdName, char *cmdline)
 {
     bool anyMatches = false;
 
@@ -6701,9 +6763,10 @@ static void cliHelp(const char *cmdName, char *cmdline)
         if (isEmpty(cmdline)) {
             printEntry = true;
         } else {
+            const char *cmdDesc = cmdTable[i].description;
             if (strcasestr(cmdTable[i].name, cmdline)
 #ifndef MINIMAL_CLI
-                || strcasestr(cmdTable[i].description, cmdline)
+                || (cmdDesc && strcasestr(cmdDesc, cmdline))
 #endif
                ) {
                 printEntry = true;

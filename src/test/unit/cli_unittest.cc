@@ -28,10 +28,12 @@ extern "C" {
     #include "build/version.h"
     #include "io/gps.h"
     #include "cli/cli.h"
+    #include "cli/cli_impl.h"
     #include "cli/settings.h"
     #include "common/printf.h"
     #include "common/maths.h"
     #include "common/gps_conversion.h"
+    #include "common/parse.h"
     #include "config/feature.h"
     #include "drivers/buf_writer.h"
     #include "drivers/vtx_common.h"
@@ -45,6 +47,7 @@ extern "C" {
     #include "io/ledstrip.h"
     #include "io/serial.h"
     #include "io/vtx.h"
+    #include "io/vtx_control.h"
     #include "msp/msp.h"
     #include "msp/msp_box.h"
     #include "osd/osd.h"
@@ -59,10 +62,26 @@ extern "C" {
     #include "sensors/battery.h"
     #include "sensors/gyro.h"
 
+    // rc/rx.h
+    float rcData[MAX_SUPPORTED_RC_CHANNEL_COUNT];
+
     void cliSet(const char *cmdName, char *cmdline);
     int cliGetSettingIndex(char *name, uint8_t length);
     void *cliGetValuePointer(const clivalue_t *value);
-    
+
+    void cliHelp(const char *, char *);
+    extern bool commandBatchActive;
+    extern bool commandBatchError;
+    void cliBatch(const char *, char *);
+    void cliDiff(const char *, char *);
+    void cliAux(const char *, char *);
+    void printAux(
+        dumpFlags_t, const modeActivationCondition_t *, const modeActivationCondition_t *, const char *
+    );
+    void cliAdjustmentRange(const char *, char *);
+    void cliColor(const char *, char *);
+    void cliLed(const char *, char *);
+
     const clivalue_t valueTable[] = {
         { .name = "array_unit_test",   .type = VAR_INT8  | MODE_ARRAY  | MASTER_VALUE, .config = { .array = { .length = 3}},                     .pgn = PG_RESERVED_FOR_TESTING_1, .offset = 0 },
         { .name = "str_unit_test",     .type = VAR_UINT8 | MODE_STRING | MASTER_VALUE, .config = { .string = { 0, 16, 0 }},                      .pgn = PG_RESERVED_FOR_TESTING_1, .offset = 0 },
@@ -74,6 +93,10 @@ extern "C" {
     const char * const buildKey = NULL;
     const char * const releaseName = NULL;
 
+    bufWriter_t cliWriterDesc;
+    extern bufWriter_t *cliWriter;
+    extern bufWriter_t *cliErrorWriter;
+    void dummyBufWriter(void *, void *, int);
 
     PG_REGISTER(osdConfig_t, osdConfig, PG_OSD_CONFIG, 0);
     PG_REGISTER(batteryConfig_t, batteryConfig, PG_BATTERY_CONFIG, 0);
@@ -82,7 +105,6 @@ extern "C" {
     PG_REGISTER(systemConfig_t, systemConfig, PG_SYSTEM_CONFIG, 0);
     PG_REGISTER(pilotConfig_t, pilotConfig, PG_PILOT_CONFIG, 0);
     PG_REGISTER_ARRAY(adjustmentRange_t, MAX_ADJUSTMENT_RANGE_COUNT, adjustmentRanges, PG_ADJUSTMENT_RANGE_CONFIG, 0);
-    PG_REGISTER_ARRAY(modeActivationCondition_t, MAX_MODE_ACTIVATION_CONDITION_COUNT, modeActivationConditions, PG_MODE_ACTIVATION_PROFILE, 0);
     PG_REGISTER(mixerConfig_t, mixerConfig, PG_MIXER_CONFIG, 0);
     PG_REGISTER_ARRAY(motorMixer_t, MAX_SUPPORTED_MOTORS, customMotorMixer, PG_MOTOR_MIXER, 0);
     PG_REGISTER_ARRAY(servoParam_t, MAX_SUPPORTED_SERVOS, servoParams, PG_SERVO_PARAMS, 0);
@@ -100,10 +122,14 @@ extern "C" {
     PG_REGISTER_WITH_RESET_FN(int8_t, unitTestData, PG_RESERVED_FOR_TESTING_1, 0);
 }
 
+#include <vector>
 #include "unittest_macros.h"
 #include "gtest/gtest.h"
 
+using namespace std;
+
 const bool PRINT_TEST_DATA = false;
+
 
 TEST(CLIUnittest, TestCliSetArray)
 {
@@ -205,6 +231,594 @@ TEST(CLIUnittest, TestCliSetStringWriteOnce)
     EXPECT_EQ(0,   data[6]);
 }
 
+struct test {
+    uint8_t a;
+    uint8_t b;
+};
+
+static uint8_t data[1000];
+static vector<string> outLines;
+
+class CliWriteTest : public ::testing::Test
+{
+
+protected:
+    static void SetUpTestCase() {}
+
+    virtual void SetUp() {
+        bufWriterInit(&cliWriterDesc, data, sizeof(data), &dummyBufWriter, NULL);
+        cliWriter = cliErrorWriter = &cliWriterDesc;
+    }
+
+    virtual void TearDown() {
+        cliWriter = cliErrorWriter = NULL;
+        outLines.clear();
+    }
+
+    static void putOutLine(string line) {
+        if (line.empty()) {
+            return;
+        }
+        if (outLines.empty()) {
+            outLines.push_back(line);
+            return;
+        }
+
+        auto &lastLine = outLines.back();
+        if (!lastLine.empty() && lastLine.back() == '\n') {
+            outLines.push_back(line);
+        } else {
+            lastLine.append(line);
+        }
+    }
+
+    static void dummyBufWriter(void *, void *_data, int size) {
+        string str(static_cast<const char*>(_data), size);
+        istringstream stream(str);
+
+        for (string line; std::getline(stream, line);) {
+            if (!line.empty() && line.back() == '\r') {
+                line.pop_back(); // Remove the '\r' character
+            }
+            if (!stream.eof()) { // line was terminated by '\n'
+                line.push_back('\n');
+            }
+            putOutLine(line);
+        }
+    }
+
+    void clear() {
+        outLines.clear();
+    }
+};
+
+// Help tests
+TEST_F(CliWriteTest, HelpAll)
+{
+    const char cmd[] = "help";
+    char args[] = "";
+    cliHelp(cmd, args);
+    EXPECT_LT(50, outLines.size());
+}
+
+TEST_F(CliWriteTest, HelpFindByName)
+{
+    const char cmd[] = "help";
+    char args[] = "aux";
+    cliHelp(cmd, args);
+    vector<string> expected = {
+        "aux - configure modes\n",
+        "\t<index> <mode> <aux> <start> <end> <logic>\n",
+    };
+    EXPECT_EQ(expected, outLines);
+}
+
+TEST_F(CliWriteTest, HelpSearchByDescription)
+{
+    const char cmd[] = "help";
+    char args[] = "reb";
+    cliHelp(cmd, args);
+    vector<string> expected = {
+        "bl - reboot into bootloader\n",
+        "\t[rom]\n",
+        "defaults - reset to defaults and reboot\n",
+        "\t{nosave}\n",
+        "exit - exit command line interface and reboot (default)\n",
+        "\t[noreboot]\n",
+        "save - save and reboot (default)\n",
+        "\t[noreboot]\n",
+    };
+    EXPECT_EQ(expected, outLines);
+}
+// End of help tests
+
+// Batch tests
+TEST_F(CliWriteTest, BatchNoArgs)
+{
+    const char cmd[] = "batch";
+    char args[] = "";
+    cliBatch(cmd, args);
+    vector<string> expected = {
+        "###ERROR IN batch: INVALID ARGUMENT COUNT###\n",
+    };
+    EXPECT_EQ(expected, outLines);
+}
+
+TEST_F(CliWriteTest, BatchInvalidCommand)
+{
+    const char cmd[] = "batch";
+    char args[] = "start_pause";
+    cliBatch(cmd, args);
+    vector<string> expected = {
+        "###ERROR IN batch: BATCH_COMMAND INVALID VARIANT###\n",
+    };
+    EXPECT_EQ(expected, outLines);
+}
+
+TEST_F(CliWriteTest, BatchStart)
+{
+    const char cmd[] = "batch";
+    char args[] = "start";
+    cliBatch(cmd, args);
+    vector<string> expected = {
+        "Command batch started\n",
+    };
+    EXPECT_EQ(expected, outLines);
+    EXPECT_TRUE(commandBatchActive);
+    EXPECT_FALSE(commandBatchError);
+}
+
+TEST_F(CliWriteTest, BatchEnd)
+{
+    const char cmd[] = "batch";
+    char args[] = "end";
+    cliBatch(cmd, args);
+    vector<string> expected = {
+        "Command batch ended\n",
+    };
+    EXPECT_EQ(expected, outLines);
+    EXPECT_FALSE(commandBatchActive);
+    EXPECT_FALSE(commandBatchError);
+}
+// End of batch tests
+
+// // Diff tests
+// FIXME: It matches arguments by a prefix
+// TEST_F(CliWriteTest, InvalidArgument)
+// {
+//     const char cmd[] = "diff";
+//     char args[] = "master_a";
+//     cliDiff(cmd, args);
+//     vector<string> expected = {
+//         "###ERROR IN batch: INVALID ARGUMENT COUNT###\n",
+//     };
+//     EXPECT_EQ(expected, outLines);
+// }
+// // End of diff tests
+
+// Aux tests
+class AuxCliWriteTest : public CliWriteTest {
+protected:
+    virtual void SetUp() {
+        CliWriteTest::SetUp();
+
+        for (unsigned i = 0; i < MAX_MODE_ACTIVATION_CONDITION_COUNT; i++) {
+            memset(modeActivationConditionsMutable(i), 0, sizeof(modeActivationCondition_t));
+        }
+    }
+
+    void checkConditionsLeftUntouched(
+        unsigned startIx = 0, unsigned endIx = MAX_MODE_ACTIVATION_CONDITION_COUNT
+    ) {
+        for (auto i = startIx; i < endIx; i++) {
+            auto condition = modeActivationConditions(i);
+            EXPECT_EQ(BOXARM, condition->modeId);
+            EXPECT_EQ(0, condition->auxChannelIndex);
+            EXPECT_EQ(0, condition->range.startStep);
+            EXPECT_EQ(0, condition->range.endStep);
+            EXPECT_EQ(MODELOGIC_OR, condition->modeLogic);
+            EXPECT_EQ(BOXARM, condition->linkedTo);
+        }
+    }
+};
+
+TEST_F(AuxCliWriteTest, PrintAux_Default)
+{
+    const char heading[] = "aux";
+    printAux(DUMP_MASTER, modeActivationConditions(0), NULL, heading);
+    vector<string> expected = {
+        "\n",
+        "# aux\n",
+        "aux 0 0 0 900 900 0 0\n",
+        "aux 1 0 0 900 900 0 0\n",
+        "aux 2 0 0 900 900 0 0\n",
+        "aux 3 0 0 900 900 0 0\n",
+        "aux 4 0 0 900 900 0 0\n",
+        "aux 5 0 0 900 900 0 0\n",
+        "aux 6 0 0 900 900 0 0\n",
+        "aux 7 0 0 900 900 0 0\n",
+        "aux 8 0 0 900 900 0 0\n",
+        "aux 9 0 0 900 900 0 0\n",
+        "aux 10 0 0 900 900 0 0\n",
+        "aux 11 0 0 900 900 0 0\n",
+        "aux 12 0 0 900 900 0 0\n",
+        "aux 13 0 0 900 900 0 0\n",
+        "aux 14 0 0 900 900 0 0\n",
+        "aux 15 0 0 900 900 0 0\n",
+        "aux 16 0 0 900 900 0 0\n",
+        "aux 17 0 0 900 900 0 0\n",
+        "aux 18 0 0 900 900 0 0\n",
+        "aux 19 0 0 900 900 0 0\n",
+    };
+    EXPECT_EQ(expected, outLines);
+}
+
+TEST_F(AuxCliWriteTest, PrintAux_DiffAll)
+{
+    modeActivationCondition_t modifiedConditions[MAX_MODE_ACTIVATION_CONDITION_COUNT] = {
+        [0] = {
+            .modeId = BOXANGLE,
+            .auxChannelIndex = 7,
+            .range = { .startStep = 0, .endStep = 12 },
+            .modeLogic = MODELOGIC_OR,
+            .linkedTo = BOXARM
+        },
+    };
+    const char heading[] = "aux";
+    printAux(DO_DIFF, modifiedConditions, modeActivationConditions(0), heading);
+    vector<string> expected = {
+        "\n",
+        "# aux\n",
+        "aux 0 1 7 900 1200 0 0\n",
+    };
+    EXPECT_EQ(expected, outLines);
+}
+
+TEST_F(AuxCliWriteTest, Show)
+{
+    const char cmd[] = "aux";
+    char args[] = "";
+    cliAux(cmd, args);
+    vector<string> expected = {
+        "aux 0 0 0 900 900 0 0\n",
+        "aux 1 0 0 900 900 0 0\n",
+        "aux 2 0 0 900 900 0 0\n",
+        "aux 3 0 0 900 900 0 0\n",
+        "aux 4 0 0 900 900 0 0\n",
+        "aux 5 0 0 900 900 0 0\n",
+        "aux 6 0 0 900 900 0 0\n",
+        "aux 7 0 0 900 900 0 0\n",
+        "aux 8 0 0 900 900 0 0\n",
+        "aux 9 0 0 900 900 0 0\n",
+        "aux 10 0 0 900 900 0 0\n",
+        "aux 11 0 0 900 900 0 0\n",
+        "aux 12 0 0 900 900 0 0\n",
+        "aux 13 0 0 900 900 0 0\n",
+        "aux 14 0 0 900 900 0 0\n",
+        "aux 15 0 0 900 900 0 0\n",
+        "aux 16 0 0 900 900 0 0\n",
+        "aux 17 0 0 900 900 0 0\n",
+        "aux 18 0 0 900 900 0 0\n",
+        "aux 19 0 0 900 900 0 0\n",
+    };
+    EXPECT_EQ(expected, outLines);
+
+}
+
+TEST_F(AuxCliWriteTest, Get)
+{
+    const char cmd[] = "aux";
+    char args[] = "15";
+    cliAux(cmd, args);
+    vector<string> expected = {
+        "aux 15 0 0 900 900 0 0\n"
+    };
+    EXPECT_EQ(expected, outLines);
+
+    checkConditionsLeftUntouched();
+}
+
+TEST_F(AuxCliWriteTest, NotEnoughArgs)
+{
+    const char cmd[] = "aux";
+    char args[] = "0 1 ";
+    cliAux(cmd, args);
+    vector<string> expected = {
+        "###ERROR IN aux: INVALID ARGUMENT COUNT###\n"
+    };
+    EXPECT_EQ(expected, outLines);
+
+    checkConditionsLeftUntouched();
+}
+
+TEST_F(AuxCliWriteTest, IndexNotANumber)
+{
+    const char cmd[] = "aux";
+    char args[] = "a";
+    cliAux(cmd, args);
+    vector<string> expected = {
+        "###ERROR IN aux: INDEX IS NOT A NUMBER###\n"
+    };
+    EXPECT_EQ(expected, outLines);
+
+    checkConditionsLeftUntouched();
+}
+
+TEST_F(AuxCliWriteTest, ChannelIndexOutOfRange)
+{
+    const char cmd[] = "aux";
+    char args[] = "0 0 14 1800 2100 0 0";
+    cliAux(cmd, args);
+    vector<string> expected = {
+        "###ERROR IN aux: CHANNEL_INDEX NOT BETWEEN 0 AND 13###\n"
+    };
+    EXPECT_EQ(expected, outLines);
+
+    checkConditionsLeftUntouched();
+}
+
+TEST_F(AuxCliWriteTest, ChannelEndRangeOutOfRange)
+{
+    const char cmd[] = "aux";
+    char args[] = "0 0 13 1800 2101 0 0";
+    cliAux(cmd, args);
+    vector<string> expected = {
+        "###ERROR IN aux: CHANNEL_RANGE.END NOT BETWEEN 900 AND 2100###\n"
+    };
+    EXPECT_EQ(expected, outLines);
+
+    checkConditionsLeftUntouched();
+}
+
+TEST_F(AuxCliWriteTest, TooManyArguments)
+{
+    const char cmd[] = "aux";
+    char args[] = "0 0 13 1800 2100 0 0 0";
+    cliAux(cmd, args);
+    vector<string> expected = {
+        "###ERROR IN aux: TOO MANY ARGUMENTS###\n"
+    };
+    EXPECT_EQ(expected, outLines);
+
+    checkConditionsLeftUntouched();
+}
+
+TEST_F(AuxCliWriteTest, SetCondition)
+{
+    const char cmd[] = "aux";
+    char args[] = "0 1 2 900 1200 0 0 ";
+    cliAux(cmd, args);
+    vector<string> expected = {
+        "aux 0 1 2 900 1200 0 0\n",
+    };
+    EXPECT_EQ(expected, outLines);
+
+    auto condition = modeActivationConditions(0);
+    EXPECT_EQ(BOXANGLE, condition->modeId);
+    EXPECT_EQ(2, condition->auxChannelIndex);
+    EXPECT_EQ(0, condition->range.startStep);
+    EXPECT_EQ(12, condition->range.endStep);
+    EXPECT_EQ(MODELOGIC_OR, condition->modeLogic);
+    EXPECT_EQ(BOXARM, condition->linkedTo);
+
+    checkConditionsLeftUntouched(1);
+}
+
+TEST_F(AuxCliWriteTest, BackwardCompat)
+{
+    {
+        auto condition = modeActivationConditionsMutable(19);
+        condition->modeLogic = MODELOGIC_AND;
+        condition->linkedTo = BOXHORIZON;
+    }
+
+    const char cmd[] = "aux";
+    char args[] = "19 1 2 900 1200 ";
+    cliAux(cmd, args);
+    vector<string> expected = {
+        "aux 19 1 2 900 1200 0 0\n",
+    };
+    EXPECT_EQ(expected, outLines);
+
+    checkConditionsLeftUntouched(0, 18);
+
+    auto condition = modeActivationConditions(19);
+    EXPECT_EQ(BOXANGLE, condition->modeId);
+    EXPECT_EQ(2, condition->auxChannelIndex);
+    EXPECT_EQ(0, condition->range.startStep);
+    EXPECT_EQ(12, condition->range.endStep);
+    EXPECT_EQ(MODELOGIC_OR, condition->modeLogic);
+    EXPECT_EQ(BOXARM, condition->linkedTo);
+}
+// End of aux tests
+
+// Adjrange tests
+class AdjRangeCliWriteTest : public CliWriteTest {
+protected:
+    virtual void SetUp() {
+        CliWriteTest::SetUp();
+
+        for (unsigned i = 0; i < MAX_ADJUSTMENT_RANGE_COUNT; i++) {
+            memset(adjustmentRangesMutable(i), 0, sizeof(adjustmentRange_t));
+        }
+    }
+};
+
+TEST_F(AdjRangeCliWriteTest, PrintAll)
+{
+    const char cmd[] = "adjrange";
+    char args[] = "";
+    cliAdjustmentRange(cmd, args);
+    EXPECT_EQ("adjrange 0 0 0 900 900 0 0 0 0\n", outLines.at(0));
+    EXPECT_EQ("adjrange 29 0 0 900 900 0 0 0 0\n", outLines.at(outLines.size() - 1));
+}
+
+TEST_F(AdjRangeCliWriteTest, PrintIndex)
+{
+    const char cmd[] = "adjrange";
+    char args[] = "1";
+    cliAdjustmentRange(cmd, args);
+    vector<string> expected = {
+        "adjrange 1 0 0 900 900 0 0 0 0\n"
+    };
+    EXPECT_EQ(expected, outLines);
+}
+
+TEST_F(AdjRangeCliWriteTest, NotEnoughArgs)
+{
+    const char cmd[] = "adjrange";
+    char args[] = "1 0 0 900 1200 0";
+    cliAdjustmentRange(cmd, args);
+    vector<string> expected = {
+        "###ERROR IN adjrange: INVALID ARGUMENT COUNT###\n"
+    };
+    EXPECT_EQ(expected, outLines);
+}
+
+TEST_F(AdjRangeCliWriteTest, MinValidArgs)
+{
+    const char cmd[] = "adjrange";
+    char args[] = "1 0 1 900 1200 1 2";
+    cliAdjustmentRange(cmd, args);
+    vector<string> expected = {
+        "adjrange 1 0 1 900 1200 1 2 0 0\n"
+    };
+    EXPECT_EQ(expected, outLines);
+    auto adjRange = adjustmentRangesMutable(1);
+    EXPECT_EQ(adjRange->auxChannelIndex, 1);
+    EXPECT_EQ(adjRange->range.startStep, 0);
+    EXPECT_EQ(adjRange->range.endStep, 12);
+    EXPECT_EQ(adjRange->adjustmentConfig, 1);
+    EXPECT_EQ(adjRange->auxSwitchChannelIndex, 2);
+    EXPECT_EQ(adjRange->adjustmentCenter, 0);
+    EXPECT_EQ(adjRange->adjustmentScale, 0);
+}
+
+TEST_F(AdjRangeCliWriteTest, AllArgs)
+{
+    const char cmd[] = "adjrange";
+    char args[] = "1 0 4 1450 1550 15 1 58 20";
+    cliAdjustmentRange(cmd, args);
+    vector<string> expected = {
+        "adjrange 1 0 4 1450 1550 15 1 58 20\n"
+    };
+    EXPECT_EQ(expected, outLines);
+    auto adjRange = adjustmentRangesMutable(1);
+    EXPECT_EQ(adjRange->auxChannelIndex, 4);
+    EXPECT_EQ(adjRange->range.startStep, 22);
+    EXPECT_EQ(adjRange->range.endStep, 26);
+    EXPECT_EQ(adjRange->adjustmentConfig, 15);
+    EXPECT_EQ(adjRange->auxSwitchChannelIndex, 1);
+    EXPECT_EQ(adjRange->adjustmentCenter, 58);
+    EXPECT_EQ(adjRange->adjustmentScale, 20);
+}
+// End of adjrange tests
+
+// Color and led tests
+class ColorCliWriteTest : public CliWriteTest {
+protected:
+    virtual void SetUp() {
+        CliWriteTest::SetUp();
+
+        for (unsigned i = 0; i < MAX_MODE_ACTIVATION_CONDITION_COUNT; i++) {
+            memset(modeActivationConditionsMutable(i), 0, sizeof(modeActivationCondition_t));
+        }
+    }
+};
+
+TEST_F(ColorCliWriteTest, ShowAll)
+{
+    const char cmd[] = "color";
+    char args[] = "";
+    cliColor(cmd, args);
+    vector<string> expected = {
+        "color 0 0,0,0\n",
+        "color 1 0,0,0\n",
+        "color 2 0,0,0\n",
+        "color 3 0,0,0\n",
+        "color 4 0,0,0\n",
+        "color 5 0,0,0\n",
+        "color 6 0,0,0\n",
+        "color 7 0,0,0\n",
+        "color 8 0,0,0\n",
+        "color 9 0,0,0\n",
+        "color 10 0,0,0\n",
+        "color 11 0,0,0\n",
+        "color 12 0,0,0\n",
+        "color 13 0,0,0\n",
+        "color 14 0,0,0\n",
+        "color 15 0,0,0\n",
+    };
+    EXPECT_EQ(expected, outLines);
+}
+
+TEST_F(ColorCliWriteTest, InvalidIndex)
+{
+    const char cmd[] = "color";
+    char args[] = "I";
+    cliColor(cmd, args);
+    vector<string> expected = {
+        "###ERROR IN color: INDEX IS NOT A NUMBER###\n",
+    };
+    EXPECT_EQ(expected, outLines);
+}
+
+TEST_F(CliWriteTest, InvalidColor)
+{
+    const char cmd[] = "color";
+    char args[] = "1 a,b,c";
+    cliColor(cmd, args);
+    vector<string> expected = {
+        "###ERROR IN color: COLOR.HUE IS NOT A NUMBER###\n",
+    };
+    EXPECT_EQ(expected, outLines);
+}
+
+TEST_F(ColorCliWriteTest, Color)
+{
+    const char cmd[] = "color";
+    char args[] = "1 9,84,13";
+    cliColor(cmd, args);
+    vector<string> expected = {
+        "color 1 9,84,13\n",
+    };
+    EXPECT_EQ(expected, outLines);
+}
+
+TEST_F(ColorCliWriteTest, ColorWithSpaces)
+{
+    const char cmd[] = "color";
+    char args[] = "1 359 , 255 , 255";
+    cliColor(cmd, args);
+    vector<string> expected = {
+        "color 1 359,255,255\n",
+    };
+    EXPECT_EQ(expected, outLines);
+}
+
+TEST_F(ColorCliWriteTest, MissingColor)
+{
+    const char cmd[] = "color";
+    char args[] = "1 359,255";
+    cliColor(cmd, args);
+    vector<string> expected = {
+        "###ERROR IN color: INVALID ARGUMENT COUNT###\n",
+    };
+    EXPECT_EQ(expected, outLines);
+}
+
+TEST_F(CliWriteTest, Led)
+{
+    const char cmd[] = "led";
+    char args[] = "+";
+    cliLed(cmd, args);
+    vector<string> expected = {
+        "###ERROR IN led: INDEX IS NOT A NUMBER###\n",
+    };
+    EXPECT_EQ(expected, outLines);
+}
+// End of color and led tests
+
 // STUBS
 extern "C" {
 
@@ -254,9 +868,12 @@ size_t getEEPROMStorageSize()
 
 void setPrintfSerialPort(struct serialPort_s) {}
 
-static const box_t boxes[] = { { "DUMMYBOX", 0, 0 } };
-const box_t *findBoxByPermanentId(uint8_t) { return &boxes[0]; }
-const box_t *findBoxByBoxId(boxId_e) { return &boxes[0]; }
+static const box_t boxes[] = {
+  { "ARM", 0, 0 },
+  { "ANGLE", 1, 1 }
+};
+const box_t *findBoxByPermanentId(uint8_t permanentId) { return &boxes[permanentId]; }
+const box_t *findBoxByBoxId(boxId_e boxId) { return &boxes[boxId]; }
 
 int8_t unitTestDataArray[3];
 
@@ -284,9 +901,7 @@ void setPreferredBeeperOffMask(uint32_t) {}
 void beeperOffSet(uint32_t) {}
 void beeperOffClear(uint32_t) {}
 void beeperOffClearAll(void) {}
-bool parseColor(int, const char *) {return false; }
 bool resetEEPROM(void) { return true; }
-void bufWriterFlush(bufWriter_t *) {}
 void mixerResetDisarmedMotors(void) {}
 
 typedef enum {
@@ -296,7 +911,11 @@ typedef enum {
 void dashboardShowFixedPage(pageId_e){}
 void dashboardUpdate(timeUs_t) {}
 
-bool parseLedStripConfig(int, const char *){return false; }
+bool parseLedStripConfig(int, const char *config){
+    char c = *config;
+    UNUSED(c);
+    return false;
+}
 const char rcChannelLetters[] = "AERT12345678abcdefgh";
 
 void parseRcChannels(const char *, rxConfig_t *){}
@@ -348,9 +967,7 @@ const char * const shortGitRevision = "MASTER";
 //uint32_t serialRxBytesWaiting(const serialPort_t *) {return 0;}
 //uint8_t serialRead(serialPort_t *){return 0;}
 
-void bufWriterAppend(bufWriter_t *, uint8_t ch){ printf("%c", ch); }
 //void serialWriteBufShim(void *, const uint8_t *, int) {}
-void bufWriterInit(bufWriter_t *, uint8_t *, int, bufWrite_t, void *) { }
 //void setArmingDisabled(armingDisableFlags_e) {}
 
 void waitForSerialPortToFinishTransmitting(serialPort_t *) {}
@@ -381,8 +998,8 @@ bool setManufacturerId(char *newManufacturerId) { UNUSED(newManufacturerId); ret
 bool persistBoardInformation(void) { return true; };
 
 void activeAdjustmentRangeReset(void) {}
-void analyzeModeActivationConditions(void) {}
-bool isModeActivationConditionConfigured(const modeActivationCondition_t *, const modeActivationCondition_t *) { return false; }
+// void analyzeModeActivationConditions(void) {}
+// bool isModeActivationConditionConfigured(const modeActivationCondition_t *, const modeActivationCondition_t *) { return false; }
 
 void delay(uint32_t) {}
 displayPort_t *osdGetDisplayPort(osdDisplayPortDevice_e *) { return NULL; }

@@ -50,6 +50,8 @@
 
 #include "pg/serial_uart.h"
 
+#include "common/irq_all.h"
+
 #if !defined(UART_TX_BUFFER_ATTRIBUTE) || !defined(UART_RX_BUFFER_ATTRIBUTE)
 #error Undefined UART_{TX,RX}_BUFFER_ATTRIBUTE for this MCU
 #endif

@@ -161,20 +161,20 @@
 #define PARAM_NAME_ALTITUDE_LPF "altitude_lpf"
 #define PARAM_NAME_ALTITUDE_D_LPF "altitude_d_lpf"
 
-#define PARAM_NAME_HOVER_THROTTLE "hover_throttle"
-#define PARAM_NAME_LANDING_ALTITUDE "landing_altitude_m"
-#define PARAM_NAME_THROTTLE_MIN "autopilot_throttle_min"
-#define PARAM_NAME_THROTTLE_MAX "autopilot_throttle_max"
-#define PARAM_NAME_ALTITUDE_P "autopilot_altitude_P"
-#define PARAM_NAME_ALTITUDE_I "autopilot_altitude_I"
-#define PARAM_NAME_ALTITUDE_D "autopilot_altitude_D"
-#define PARAM_NAME_ALTITUDE_F "autopilot_altitude_F"
-#define PARAM_NAME_POSITION_P "autopilot_position_P"
-#define PARAM_NAME_POSITION_I "autopilot_position_I"
-#define PARAM_NAME_POSITION_D "autopilot_position_D"
-#define PARAM_NAME_POSITION_A "autopilot_position_A"
-#define PARAM_NAME_POSITION_CUTOFF "autopilot_position_cutoff"
-#define PARAM_NAME_AP_MAX_ANGLE "autopilot_max_angle"
+#define PARAM_NAME_AP_HOVER_THROTTLE "ap_hover_throttle"
+#define PARAM_NAME_AP_LANDING_ALTITUDE_M "ap_landing_altitude_m"
+#define PARAM_NAME_AP_THROTTLE_MIN "ap_throttle_min"
+#define PARAM_NAME_AP_THROTTLE_MAX "ap_throttle_max"
+#define PARAM_NAME_AP_ALTITUDE_P "ap_altitude_P"
+#define PARAM_NAME_AP_ALTITUDE_I "ap_altitude_I"
+#define PARAM_NAME_AP_ALTITUDE_D "ap_altitude_D"
+#define PARAM_NAME_AP_ALTITUDE_F "ap_altitude_F"
+#define PARAM_NAME_AP_POSITION_P "ap_position_P"
+#define PARAM_NAME_AP_POSITION_I "ap_position_I"
+#define PARAM_NAME_AP_POSITION_D "ap_position_D"
+#define PARAM_NAME_AP_POSITION_A "ap_position_A"
+#define PARAM_NAME_AP_POSITION_CUTOFF "ap_position_cutoff"
+#define PARAM_NAME_AP_MAX_ANGLE "ap_max_angle"
 
 #define PARAM_NAME_ANGLE_FEEDFORWARD "angle_feedforward"
 #define PARAM_NAME_ANGLE_FF_SMOOTHING_MS "angle_feedforward_smoothing_ms"
@@ -216,9 +216,6 @@
 #define PARAM_NAME_GPS_RESCUE_RETURN_ALT "gps_rescue_return_alt"
 #define PARAM_NAME_GPS_RESCUE_GROUND_SPEED "gps_rescue_ground_speed"
 #define PARAM_NAME_GPS_RESCUE_MAX_RESCUE_ANGLE "gps_rescue_max_angle"
-#define PARAM_NAME_GPS_RESCUE_ROLL_MIX "gps_rescue_roll_mix"
-#define PARAM_NAME_GPS_RESCUE_PITCH_CUTOFF "gps_rescue_pitch_cutoff"
-#define PARAM_NAME_GPS_RESCUE_IMU_YAW_GAIN "gps_rescue_imu_yaw_gain"
 
 #define PARAM_NAME_GPS_RESCUE_DESCENT_DIST "gps_rescue_descent_dist"
 #define PARAM_NAME_GPS_RESCUE_DESCEND_RATE "gps_rescue_descend_rate"
@@ -228,15 +225,10 @@
 #define PARAM_NAME_GPS_RESCUE_MIN_SATS "gps_rescue_min_sats"
 #define PARAM_NAME_GPS_RESCUE_ALLOW_ARMING_WITHOUT_FIX "gps_rescue_allow_arming_without_fix"
 
-#define PARAM_NAME_GPS_RESCUE_VELOCITY_P "gps_rescue_velocity_p"
-#define PARAM_NAME_GPS_RESCUE_VELOCITY_I "gps_rescue_velocity_i"
-#define PARAM_NAME_GPS_RESCUE_VELOCITY_D "gps_rescue_velocity_d"
 #define PARAM_NAME_GPS_RESCUE_YAW_P "gps_rescue_yaw_p"
-
 #ifdef USE_MAG
 #define PARAM_NAME_GPS_RESCUE_USE_MAG "gps_rescue_use_mag"
 #endif // USE_MAG
-
 #endif // USE_GPS_RESCUE
 
 #ifdef USE_GPS_LAP_TIMER
@@ -250,7 +242,7 @@
 
 #ifdef USE_ALTITUDE_HOLD
 #define PARAM_NAME_ALT_HOLD_DEADBAND "alt_hold_deadband"
-#define PARAM_NAME_ALT_HOLD_THROTTLE_RESPONSE "alt_hold_throttle_response"
+#define PARAM_NAME_ALT_HOLD_CLIMB_RATE "alt_hold_climb_rate"
 #endif
 
 #ifdef USE_POSITION_HOLD
@@ -265,4 +257,5 @@
 
 #ifdef USE_MAG
 #define PARAM_NAME_IMU_MAG_DECLINATION "mag_declination"
+#define PARAM_NAME_USE_MAG "use_mag"
 #endif

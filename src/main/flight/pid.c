@@ -54,6 +54,7 @@
 
 #include "io/gps.h"
 
+#include "pg/autopilot.h"
 #include "pg/pg.h"
 #include "pg/pg_ids.h"
 
@@ -568,7 +569,10 @@ STATIC_UNIT_TESTED FAST_CODE_NOINLINE float pidLevel(int axis, const pidProfile_
 #endif // USE_WING
 
 #ifdef USE_GPS_RESCUE
-    angleTarget += gpsRescueAngle[axis] / 100.0f; // Angle is in centidegrees, stepped on roll at 10Hz but not on pitch
+    if (FLIGHT_MODE(GPS_RESCUE_MODE)) {
+        angleTarget = autopilotAngle[axis]; // autopilotAngle in degrees
+        angleFeedforward = 0.0f;
+    }
 #endif
 #if defined(USE_POSITION_HOLD) && !defined(USE_WING)
     if (FLIGHT_MODE(POS_HOLD_MODE)) {
@@ -579,7 +583,7 @@ STATIC_UNIT_TESTED FAST_CODE_NOINLINE float pidLevel(int axis, const pidProfile_
             angleLimit = 85.0f; // allow autopilot to use whatever angle it needs to stop
         }
         // limit pilot requested angle to half the autopilot angle to avoid excess speed and chaotic stops
-        angleLimit = fminf(0.5f * apConfig()->max_angle, angleLimit);
+        angleLimit = fminf(0.5f * apConfig()->ap_max_angle, angleLimit);
     }
 #endif
 

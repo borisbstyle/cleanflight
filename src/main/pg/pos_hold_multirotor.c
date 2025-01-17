@@ -35,7 +35,7 @@
 PG_REGISTER_WITH_RESET_TEMPLATE(posHoldConfig_t, posHoldConfig, PG_POSHOLD_CONFIG, 0);
 
 PG_RESET_TEMPLATE(posHoldConfig_t, posHoldConfig,
-    .pos_hold_without_mag = false,   // position hold within this percentage stick deflection
+    .pos_hold_without_mag = false,   // whether to allow position hold even if Mag is not available
     .pos_hold_deadband = 5,          // deadband in percent of stick travel for roll and pitch. Must be non-zero, and exceeded, for target location to be changed with sticks
 );
 #endif

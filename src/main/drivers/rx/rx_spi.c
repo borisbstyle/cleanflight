@@ -70,9 +70,9 @@ extDevice_t *rxSpiGetDevice(void)
     return dev;
 }
 
-void rxSpiDevicePreInit(const rxSpiConfig_t *rxSpiConfig)
+void rxSpiDevicePreinit(const rxSpiConfig_t *rxSpiConfig)
 {
-    spiPreinitRegister(rxSpiConfig->csnTag, IOCFG_IPU, 1);
+    ioPreinitByTag(rxSpiConfig->csnTag, IOCFG_IPU, PREINIT_PIN_STATE_HIGH);
 }
 
 void rxSpiExtiHandler(extiCallbackRec_t* callback)
@@ -149,7 +149,11 @@ void rxSpiExtiInit(ioConfig_t rxSpiExtiPinConfig, extiTrigger_t rxSpiExtiPinTrig
 
 void rxSpiDmaEnable(bool enable)
 {
+#ifdef USE_DMA
     spiDmaEnable(dev, enable);
+#else
+    UNUSED(enable);
+#endif
 }
 
 uint8_t rxSpiTransferByte(uint8_t data)

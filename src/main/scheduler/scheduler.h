@@ -119,8 +119,11 @@ typedef enum {
 #ifdef USE_GPS_RESCUE
     TASK_GPS_RESCUE,
 #endif
-#ifdef USE_ALT_HOLD_MODE
+#ifdef USE_ALTITUDE_HOLD
     TASK_ALTHOLD,
+#endif
+#ifdef USE_POSITION_HOLD
+    TASK_POSHOLD,
 #endif
 #ifdef USE_MAG
     TASK_COMPASS,
@@ -130,6 +133,9 @@ typedef enum {
 #endif
 #ifdef USE_RANGEFINDER
     TASK_RANGEFINDER,
+#endif
+#ifdef USE_OPTICALFLOW
+    TASK_OPTICALFLOW,
 #endif
 #if defined(USE_BARO) || defined(USE_GPS)
     TASK_ALTITUDE,
@@ -181,6 +187,9 @@ typedef enum {
 #endif
 #ifdef USE_RC_STATS
     TASK_RC_STATS,
+#endif
+#ifdef USE_GIMBAL
+    TASK_GIMBAL,
 #endif
 
     /* Count of real tasks */

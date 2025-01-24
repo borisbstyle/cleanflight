@@ -16,7 +16,6 @@
 #
 
 # The target to build, see BASE_TARGETS below
-DEFAULT_TARGET ?= STM32F405
 TARGET    ?=
 CONFIG    ?=
 
@@ -56,14 +55,14 @@ FORKNAME      = betaflight
 
 # Working directories
 ROOT            := $(patsubst %/,%,$(dir $(lastword $(MAKEFILE_LIST))))
+PLATFORM_DIR	:= $(ROOT)/src/platform
 SRC_DIR         := $(ROOT)/src/main
+LIB_MAIN_DIR    := $(ROOT)/lib/main
 OBJECT_DIR      := $(ROOT)/obj/main
 BIN_DIR         := $(ROOT)/obj
 CMSIS_DIR       := $(ROOT)/lib/main/CMSIS
-INCLUDE_DIRS    := $(SRC_DIR) \
-                   $(ROOT)/src/main/target
+INCLUDE_DIRS    := $(SRC_DIR)
 
-LINKER_DIR      := $(ROOT)/src/link
 MAKE_SCRIPT_DIR := $(ROOT)/mk
 
 ## V                 : Set verbosity level based on the V= parameter
@@ -83,13 +82,14 @@ endif
 # some targets use parallel build by default
 # MAKEFLAGS is valid only inside target, do not use this at parse phase
 DEFAULT_PARALLEL_JOBS 	:=    # all jobs in parallel (for backward compatibility)
-MAKE_PARALLEL 		= $(if $(filter -j%, $(MAKEFLAGS)),$(EMPTY),-j$(DEFAULT_PARALLEL_JOBS))
+MAKE_PARALLEL 		     = $(if $(filter -j%, $(MAKEFLAGS)),$(EMPTY),-j$(DEFAULT_PARALLEL_JOBS))
 
 # pre-build sanity checks
 include $(MAKE_SCRIPT_DIR)/checks.mk
 
 # basic target list
-BASE_TARGETS     := $(sort $(notdir $(patsubst %/,%,$(dir $(wildcard $(ROOT)/src/main/target/*/target.mk)))))
+PLATFORMS        := $(sort $(notdir $(patsubst /%,%, $(wildcard $(PLATFORM_DIR)/*))))
+BASE_TARGETS     := $(sort $(notdir $(patsubst %/,%,$(dir $(wildcard $(PLATFORM_DIR)/*/target/*/target.mk)))))
 
 # configure some directories that are relative to wherever ROOT_DIR is located
 TOOLS_DIR  ?= $(ROOT)/tools
@@ -109,7 +109,7 @@ include $(MAKE_SCRIPT_DIR)/$(OSFAMILY).mk
 include $(MAKE_SCRIPT_DIR)/tools.mk
 
 # Search path for sources
-VPATH           := $(SRC_DIR):$(SRC_DIR)/startup
+VPATH           := $(SRC_DIR):$(LIB_MAIN_DIR):$(PLATFORM_DIR)
 FATFS_DIR        = $(ROOT)/lib/main/FatFS
 FATFS_SRC        = $(notdir $(wildcard $(FATFS_DIR)/*.c))
 CSOURCES        := $(shell find $(SRC_DIR) -name '*.c')
@@ -123,22 +123,25 @@ FC_VER       := $(FC_VER_MAJOR).$(FC_VER_MINOR).$(FC_VER_PATCH)
 # import config handling
 include $(MAKE_SCRIPT_DIR)/config.mk
 
-ifeq ($(CONFIG),)
-ifeq ($(TARGET),)
-TARGET := $(DEFAULT_TARGET)
-endif
-endif
-
 # default xtal value
 HSE_VALUE       ?= 8000000
 
-CI_EXCLUDED_TARGETS := $(sort $(notdir $(patsubst %/,%,$(dir $(wildcard $(ROOT)/src/main/target/*/.exclude)))))
-CI_TARGETS          := $(filter-out $(CI_EXCLUDED_TARGETS), $(BASE_TARGETS)) $(filter CRAZYBEEF4SX1280 CRAZYBEEF4FR IFLIGHT_BLITZ_F722 NUCLEOF446 SPRACINGH7EXTREME SPRACINGH7RF, $(BASE_CONFIGS))
-include $(ROOT)/src/main/target/$(TARGET)/target.mk
+CI_EXCLUDED_TARGETS := $(sort $(notdir $(patsubst %/,%,$(dir $(wildcard $(PLATFORM_DIR)/*/target/*/.exclude)))))
+CI_COMMON_TARGETS   := STM32F4DISCOVERY CRAZYBEEF4SX1280 CRAZYBEEF4FR MATEKF405TE AIRBOTG4AIO TBS_LUCID_FC IFLIGHT_BLITZ_F722 NUCLEOF446 SPRACINGH7EXTREME SPRACINGH7RF
+CI_TARGETS          := $(filter-out $(CI_EXCLUDED_TARGETS), $(BASE_TARGETS)) $(filter $(CI_COMMON_TARGETS), $(BASE_CONFIGS))
+PREVIEW_TARGETS     := MATEKF411 AIKONF4V2 AIRBOTG4AIO ZEEZF7V3 FOXEERF745V4_AIO KAKUTEH7 TBS_LUCID_FC SITL SPRACINGH7EXTREME SPRACINGH7RF
+
+TARGET_PLATFORM     := $(notdir $(patsubst %/,%,$(subst target/$(TARGET)/,, $(dir $(wildcard $(PLATFORM_DIR)/*/target/$(TARGET)/target.mk)))))
+TARGET_PLATFORM_DIR := $(PLATFORM_DIR)/$(TARGET_PLATFORM)
+LINKER_DIR          := $(TARGET_PLATFORM_DIR)/link
+
+ifneq ($(TARGET),)
+include $(TARGET_PLATFORM_DIR)/target/$(TARGET)/target.mk
+endif
 
 REVISION := norevision
 ifeq ($(shell git diff --shortstat),)
-REVISION := $(shell git log -1 --format="%h")
+REVISION := $(shell git rev-parse --short=9 HEAD)
 endif
 
 LD_FLAGS        :=
@@ -173,8 +176,9 @@ OPTIMISE_SIZE         := -Os
 LTO_FLAGS             := $(OPTIMISATION_BASE) $(OPTIMISE_SPEED)
 endif
 
-VPATH 			:= $(VPATH):$(MAKE_SCRIPT_DIR)/mcu
 VPATH 			:= $(VPATH):$(MAKE_SCRIPT_DIR)
+
+ifneq ($(TARGET),)
 
 # start specific includes
 ifeq ($(TARGET_MCU),)
@@ -185,16 +189,16 @@ ifeq ($(TARGET_MCU_FAMILY),)
 $(error No TARGET_MCU_FAMILY specified. Is the target.mk valid for $(TARGET)?)
 endif
 
-TARGET_FLAGS  	:= -D$(TARGET) -D$(TARGET_MCU_FAMILY) $(TARGET_FLAGS)
+TARGET_FLAGS := -D$(TARGET) -D$(TARGET_PLATFORM) -D$(TARGET_MCU_FAMILY) $(TARGET_FLAGS)
 
 ifneq ($(CONFIG),)
-TARGET_FLAGS  	:= $(TARGET_FLAGS) -DUSE_CONFIG
+TARGET_FLAGS := $(TARGET_FLAGS) -DUSE_CONFIG
 endif
 
-include $(MAKE_SCRIPT_DIR)/mcu/$(TARGET_MCU_FAMILY).mk
+SPEED_OPTIMISED_SRC :=
+SIZE_OPTIMISED_SRC  :=
 
-# openocd specific includes
-include $(MAKE_SCRIPT_DIR)/openocd.mk
+include $(TARGET_PLATFORM_DIR)/mk/$(TARGET_MCU_FAMILY).mk
 
 # Configure default flash sizes for the targets (largest size specified gets hit first) if flash not specified already.
 ifeq ($(TARGET_FLASH_SIZE),)
@@ -211,10 +215,21 @@ ifneq ($(HSE_VALUE),)
 DEVICE_FLAGS  := $(DEVICE_FLAGS) -DHSE_VALUE=$(HSE_VALUE)
 endif
 
-TARGET_DIR     = $(ROOT)/src/main/target/$(TARGET)
-TARGET_DIR_SRC = $(notdir $(wildcard $(TARGET_DIR)/*.c))
+TARGET_DIR     = $(TARGET_PLATFORM_DIR)/target/$(TARGET)
+endif # TARGET specified
 
+# openocd specific includes
+include $(MAKE_SCRIPT_DIR)/openocd.mk
+
+ifeq ($(CONFIG),)
+ifeq ($(TARGET),)
+.DEFAULT_GOAL := all
+else
 .DEFAULT_GOAL := hex
+endif
+else
+.DEFAULT_GOAL := hex
+endif
 
 INCLUDE_DIRS    := $(INCLUDE_DIRS) \
                    $(ROOT)/lib/main/MAVLink
@@ -225,6 +240,16 @@ INCLUDE_DIRS    := $(INCLUDE_DIRS) \
 VPATH           := $(VPATH):$(TARGET_DIR)
 
 include $(MAKE_SCRIPT_DIR)/source.mk
+
+ifneq ($(TARGET),)
+ifneq ($(filter-out $(SRC),$(SPEED_OPTIMISED_SRC)),)
+$(error Speed optimised sources not valid: $(strip $(filter-out $(SRC),$(SPEED_OPTIMISED_SRC))))
+endif
+
+ifneq ($(filter-out $(SRC),$(SIZE_OPTIMISED_SRC)),)
+$(error Size optimised sources not valid: $(strip $(filter-out $(SRC),$(SIZE_OPTIMISED_SRC))))
+endif
+endif
 
 ###############################################################################
 # Things that might need changing to use different tools
@@ -276,7 +301,6 @@ CFLAGS     += $(ARCH_FLAGS) \
               $(TEMPORARY_FLAGS) \
               $(DEVICE_FLAGS) \
               -D_GNU_SOURCE \
-              -DUSE_STDPERIPH_DRIVER \
               -D$(TARGET) \
               $(TARGET_FLAGS) \
               -D'__FORKNAME__="$(FORKNAME)"' \
@@ -446,6 +470,11 @@ define compile_file
 	$(CROSS_CC) -c -o $@ $(CFLAGS) $(2) $<
 endef
 
+## `paths` is a list of paths that will be replaced for checking of speed, and size optimised sources
+paths := $(SRC_DIR)/ $(LIB_MAIN_DIR)/ $(PLATFORM_DIR)/
+subst_paths_for = $(foreach path,$(paths),$(filter-out $(1),$(subst $(path),,$(1))))
+subst_paths = $(strip $(if $(call subst_paths_for,$(1)), $(call subst_paths_for,$(1)), $(1)))
+
 ifeq ($(DEBUG),GDB)
 $(TARGET_OBJ_DIR)/%.o: %.c
 	$(V1) mkdir -p $(dir $@)
@@ -460,10 +489,10 @@ $(TARGET_OBJ_DIR)/%.o: %.c
 	$(V1) $(if $(findstring $<,$(NOT_OPTIMISED_SRC)), \
 		$(call compile_file,not optimised,$(CC_NO_OPTIMISATION)) \
 	, \
-		$(if $(findstring $(subst ./src/main/,,$<),$(SPEED_OPTIMISED_SRC)), \
+		$(if $(findstring $(call subst_paths,$<),$(SPEED_OPTIMISED_SRC)), \
 			$(call compile_file,speed optimised,$(CC_SPEED_OPTIMISATION)) \
 		, \
-			$(if $(findstring $(subst ./src/main/,,$<),$(SIZE_OPTIMISED_SRC)), \
+			$(if $(findstring $(call subst_paths,$<),$(SIZE_OPTIMISED_SRC)), \
 				$(call compile_file,size optimised,$(CC_SIZE_OPTIMISATION)) \
 			, \
 				$(call compile_file,optimised,$(CC_DEFAULT_OPTIMISATION)) \
@@ -520,6 +549,9 @@ $(CONFIGS_CLEAN):
 
 ## clean_all         : clean all targets
 clean_all: $(TARGETS_CLEAN) test_clean
+
+## preview           : build one target for each platform and execute make test
+preview: $(PREVIEW_TARGETS) test
 
 ## all_configs       : Build all configs
 all_configs: $(BASE_CONFIGS)
@@ -619,7 +651,7 @@ help: Makefile mk/tools.mk
 	@echo "Or:"
 	@echo "        make <config-target> [V=<verbosity>] [OPTIONS=\"<options>\"] [EXTRA_FLAGS=\"<extra_flags>\"]"
 	@echo ""
-	@echo "To pupulate configuration targets:"
+	@echo "To populate configuration targets:"
 	@echo "        make configs"
 	@echo ""
 	@echo "Valid TARGET values are: $(BASE_TARGETS)"
@@ -628,9 +660,13 @@ help: Makefile mk/tools.mk
 
 ## targets           : print a list of all valid target platforms (for consumption by scripts)
 targets:
+	@echo "Platforms:           $(PLATFORMS)"
 	@echo "Valid targets:       $(BASE_TARGETS)"
 	@echo "Built targets:       $(CI_TARGETS)"
 	@echo "Default target:      $(TARGET)"
+	@echo "CI common targets:   $(CI_COMMON_TARGETS)"
+	@echo "CI excluded targets: $(CI_EXCLUDED_TARGETS)"
+	@echo "Preview targets:     $(PREVIEW_TARGETS)"
 
 targets-ci-print:
 	@echo $(CI_TARGETS)

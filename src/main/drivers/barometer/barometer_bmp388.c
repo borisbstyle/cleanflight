@@ -183,7 +183,6 @@ static bool bmp388ReadUP(baroDev_t *baro);
 
 STATIC_UNIT_TESTED void bmp388Calculate(int32_t *pressure, int32_t *temperature);
 
-
 static bool bmp388ReadRegisterBuffer(const extDevice_t *dev, uint8_t reg, uint8_t *data, uint8_t length)
 {
     if (dev->bus->busType == BUS_TYPE_SPI) {
@@ -231,7 +230,7 @@ void bmp388BusDeinit(const extDevice_t *dev)
 {
 #ifdef USE_BARO_SPI_BMP388
     if (dev->bus->busType == BUS_TYPE_SPI) {
-        spiPreinitByIO(dev->busType_u.spi.csnPin);
+        ioPreinitByIO(dev->busType_u.spi.csnPin, IOCFG_IPU, PREINIT_PIN_STATE_HIGH);
     }
 #else
     UNUSED(dev);
@@ -296,7 +295,6 @@ bool bmp388Detect(const bmp388Config_t *config, baroDev_t *baro)
 
     // read calibration
     bmp388ReadRegisterBuffer(dev, BMP388_TRIMMING_NVM_PAR_T1_LSB_REG, (uint8_t *)&bmp388_cal, sizeof(bmp388_calib_param_t));
-
 
     // set oversampling
     busWriteRegister(dev, BMP388_OSR_REG,

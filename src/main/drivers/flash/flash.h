@@ -48,7 +48,6 @@ typedef struct flashGeometry_s {
     uint32_t jedecId;
 } flashGeometry_t;
 
-
 typedef enum {
     /*
      * When set it indicates the system was booted in memory mapped mode, flash chip is already configured by
@@ -58,7 +57,7 @@ typedef enum {
     FLASH_CF_SYSTEM_IS_MEMORY_MAPPED  = (1 << 0),
 } flashConfigurationFlags_e;
 
-void flashPreInit(const flashConfig_t *flashConfig);
+void flashPreinit(const flashConfig_t *flashConfig);
 bool flashInit(const flashConfig_t *flashConfig);
 
 bool flashIsReady(void);
@@ -75,7 +74,6 @@ const flashGeometry_t *flashGetGeometry(void);
 
 void flashMemoryMappedModeDisable(void);
 void flashMemoryMappedModeEnable(void);
-
 
 //
 // flash partitioning api

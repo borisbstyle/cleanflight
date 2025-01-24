@@ -48,14 +48,10 @@
 #include "pg/pg_ids.h"
 
 static float displayAltitudeCm = 0.0f;
-static float zeroedAltitudeCm = 0.0f;
 static bool altitudeAvailable = false;
-static bool altitudeIsLow = false;
 
-#if defined(USE_BARO) || defined(USE_GPS)
-
+static float zeroedAltitudeCm = 0.0f;
 static float zeroedAltitudeDerivative = 0.0f;
-#endif
 
 static pt2Filter_t altitudeLpf;
 static pt2Filter_t altitudeDerivativeLpf;
@@ -83,15 +79,13 @@ typedef enum {
     GPS_ONLY
 } altitudeSource_e;
 
-PG_REGISTER_WITH_RESET_TEMPLATE(positionConfig_t, positionConfig, PG_POSITION, 5);
+PG_REGISTER_WITH_RESET_TEMPLATE(positionConfig_t, positionConfig, PG_POSITION, 6);
 
 PG_RESET_TEMPLATE(positionConfig_t, positionConfig,
     .altitude_source = DEFAULT,
     .altitude_prefer_baro = 100, // percentage 'trust' of baro data
     .altitude_lpf = 300,
     .altitude_d_lpf = 100,
-    .hover_throttle = 1275,
-    .landing_altitude_m = 4,
 );
 
 #if defined(USE_BARO) || defined(USE_GPS)
@@ -171,14 +165,14 @@ void calculateEstimatedAltitude(void)
             }
         } else {
             gpsTrust = 0.0f;
-            // TO DO - smoothly reduce GPS trust, rather than immediately dropping to zero for what could be only a very brief loss of 3D fix 
+            // TO DO - smoothly reduce GPS trust, rather than immediately dropping to zero for what could be only a very brief loss of 3D fix
         }
         DEBUG_SET(DEBUG_ALTITUDE, 2, lrintf(zeroedAltitudeCm / 10.0f)); // Relative altitude above takeoff, to 0.1m, rolls over at 3,276.7m
-        
+
         // Empirical mixing of GPS and Baro altitudes
         if (useZeroedGpsAltitude && (positionConfig()->altitude_source == DEFAULT || positionConfig()->altitude_source == GPS_ONLY)) {
             if (haveBaroAlt && positionConfig()->altitude_source == DEFAULT) {
-                // mix zeroed GPS with Baro altitude data, if Baro data exists if are in default altitude control mode 
+                // mix zeroed GPS with Baro altitude data, if Baro data exists if are in default altitude control mode
                 const float absDifferenceM = fabsf(zeroedAltitudeCm - baroAltCm) / 100.0f * positionConfig()->altitude_prefer_baro / 100.0f;
                 if (absDifferenceM > 1.0f) { // when there is a large difference, favour Baro
                     gpsTrust /=  absDifferenceM;
@@ -202,16 +196,13 @@ void calculateEstimatedAltitude(void)
     zeroedAltitudeDerivative = (zeroedAltitudeCm - previousZeroedAltitudeCm) * TASK_ALTITUDE_RATE_HZ; // cm/s
     previousZeroedAltitudeCm = zeroedAltitudeCm;
 
-    // assess if altitude is low here, only when we get new data, rather than in pid loop etc
-    altitudeIsLow = zeroedAltitudeCm < 100.0f * positionConfig()->landing_altitude_m;
-
     zeroedAltitudeDerivative = pt2FilterApply(&altitudeDerivativeLpf, zeroedAltitudeDerivative);
 
 #ifdef USE_VARIO
     estimatedVario = lrintf(zeroedAltitudeDerivative);
     estimatedVario = applyDeadband(estimatedVario, 10); // ignore climb rates less than 0.1 m/s
 #endif
- 
+
     // *** set debugs
     DEBUG_SET(DEBUG_ALTITUDE, 0, (int32_t)(100 * gpsTrust));
     DEBUG_SET(DEBUG_ALTITUDE, 1, lrintf(baroAltCm / 10.0f)); // Relative altitude above takeoff, to 0.1m, rolls over at 3,276.7m
@@ -219,10 +210,22 @@ void calculateEstimatedAltitude(void)
     DEBUG_SET(DEBUG_ALTITUDE, 3, estimatedVario);
 #endif
     DEBUG_SET(DEBUG_RTH, 1, lrintf(displayAltitudeCm / 10.0f));
+    DEBUG_SET(DEBUG_AUTOPILOT_ALTITUDE, 2, lrintf(zeroedAltitudeCm));
 
     altitudeAvailable = haveGpsAlt || haveBaroAlt;
 }
+
 #endif //defined(USE_BARO) || defined(USE_GPS)
+
+float getAltitudeCm(void)
+{
+    return zeroedAltitudeCm;
+}
+
+float getAltitudeDerivative(void)
+{
+    return zeroedAltitudeDerivative; // cm/s
+}
 
 bool isAltitudeAvailable(void) {
     return altitudeAvailable;
@@ -231,16 +234,6 @@ bool isAltitudeAvailable(void) {
 int32_t getEstimatedAltitudeCm(void)
 {
     return lrintf(displayAltitudeCm);
-}
-
-float getAltitude(void)
-{
-    return zeroedAltitudeCm;
-}
-
-bool isAltitudeLow(void)
-{
-    return altitudeIsLow;
 }
 
 #ifdef USE_GPS

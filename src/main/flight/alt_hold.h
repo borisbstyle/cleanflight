@@ -17,25 +17,5 @@
 
 #pragma once
 
-#include "pg/alt_hold.h"
-
-#ifdef USE_ALT_HOLD_MODE
-#include "common/time.h"
-
-#define ALTHOLD_TASK_RATE_HZ 100         // hz
-
-typedef struct {
-    bool isAltHoldActive;
-    float targetAltitudeCm;
-    float targetAltitudeAdjustRate;
-    float measuredAltitudeCm;
-    float throttleOut;
-    float hover;
-    float smoothedVerticalVelocity;
-} altHoldState_t;
-
-void altHoldInit(void);
-void updateAltHoldState(timeUs_t currentTimeUs);
-float altHoldGetThrottle(void);
-
-#endif
+#include "flight/alt_hold_multirotor.h"
+#include "flight/alt_hold_wing.h"

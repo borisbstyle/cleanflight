@@ -95,6 +95,7 @@
 #include "fc/tasks.h"
 
 #include "flight/alt_hold.h"
+#include "flight/autopilot.h"
 #include "flight/failsafe.h"
 #include "flight/imu.h"
 #include "flight/mixer.h"
@@ -102,6 +103,7 @@
 #include "flight/pid.h"
 #include "flight/pid_init.h"
 #include "flight/position.h"
+#include "flight/pos_hold.h"
 #include "flight/servos.h"
 
 #include "io/asyncfatfs/asyncfatfs.h"
@@ -112,6 +114,7 @@
 #include "io/displayport_msp.h"
 #include "io/flashfs.h"
 #include "io/gimbal.h"
+#include "io/gimbal_control.h"
 #include "io/gps.h"
 #include "io/ledstrip.h"
 #include "io/pidaudio.h"
@@ -208,6 +211,9 @@ static void configureSPIBusses(void)
 #ifdef USE_SPI
     spiPreinit();
 
+#ifdef USE_SPI_DEVICE_0
+    spiInit(SPIDEV_0);
+#endif
 #ifdef USE_SPI_DEVICE_1
     spiInit(SPIDEV_1);
 #endif
@@ -259,7 +265,7 @@ static void sdCardAndFSInit(void)
 
 void init(void)
 {
-#ifdef SERIAL_PORT_COUNT
+#if SERIAL_PORT_COUNT > 0
     printfSerialInit();
 #endif
 
@@ -272,13 +278,13 @@ void init(void)
     // initialize IO (needed for all IO operations)
     IOInitGlobal();
 
-#ifdef USE_HARDWARE_REVISION_DETECTION
-    detectHardwareRevision();
-#endif
-
 #if defined(USE_TARGET_CONFIG)
     // Call once before the config is loaded for any target specific configuration required to support loading the config
     targetConfiguration();
+#endif
+
+#if defined(USE_CONFIG_TARGET_PREINIT)
+    configTargetPreInit();
 #endif
 
     enum {
@@ -382,7 +388,6 @@ void init(void)
     initFlags |= FLASH_INIT_ATTEMPTED;
 
 #endif // CONFIG_IN_EXTERNAL_FLASH || CONFIG_IN_MEMORY_MAPPED_FLASH
-
 
     initEEPROM();
 
@@ -518,17 +523,21 @@ void init(void)
 #endif
 
 #if defined(AVOID_UART1_FOR_PWM_PPM)
-    serialInit(featureIsEnabled(FEATURE_SOFTSERIAL),
-            featureIsEnabled(FEATURE_RX_PPM) || featureIsEnabled(FEATURE_RX_PARALLEL_PWM) ? SERIAL_PORT_USART1 : SERIAL_PORT_NONE);
+# define SERIALPORT_TO_AVOID SERIAL_PORT_USART1
 #elif defined(AVOID_UART2_FOR_PWM_PPM)
-    serialInit(featureIsEnabled(FEATURE_SOFTSERIAL),
-            featureIsEnabled(FEATURE_RX_PPM) || featureIsEnabled(FEATURE_RX_PARALLEL_PWM) ? SERIAL_PORT_USART2 : SERIAL_PORT_NONE);
+# define SERIALPORT_TO_AVOID SERIAL_PORT_USART2
 #elif defined(AVOID_UART3_FOR_PWM_PPM)
-    serialInit(featureIsEnabled(FEATURE_SOFTSERIAL),
-            featureIsEnabled(FEATURE_RX_PPM) || featureIsEnabled(FEATURE_RX_PARALLEL_PWM) ? SERIAL_PORT_USART3 : SERIAL_PORT_NONE);
-#else
-    serialInit(featureIsEnabled(FEATURE_SOFTSERIAL), SERIAL_PORT_NONE);
+# define SERIALPORT_TO_AVOID SERIAL_PORT_USART3
 #endif
+    {
+        serialPortIdentifier_e serialPortToAvoid = SERIAL_PORT_NONE;
+#if defined(SERIALPORT_TO_AVOID)
+        if (featureIsEnabled(FEATURE_RX_PPM) || featureIsEnabled(FEATURE_RX_PARALLEL_PWM)) {
+            serialPortToAvoid = SERIALPORT_TO_AVOID;
+        }
+#endif
+        serialInit(featureIsEnabled(FEATURE_SOFTSERIAL), serialPortToAvoid);
+    }
 
     mixerInit(mixerConfig()->mixerMode);
 
@@ -568,7 +577,6 @@ void init(void)
 #if defined(USE_INVERTER) && !defined(SIMULATOR_BUILD)
     initInverters(serialPinConfig());
 #endif
-
 
 #ifdef TARGET_BUS_INIT
     targetBusInit();
@@ -762,9 +770,6 @@ void init(void)
 #ifdef USE_GPS
     if (featureIsEnabled(FEATURE_GPS)) {
         gpsInit();
-#ifdef USE_GPS_RESCUE
-        gpsRescueInit();
-#endif
 #ifdef USE_GPS_LAP_TIMER
         gpsLapTimerInit();
 #endif // USE_GPS_LAP_TIMER
@@ -828,7 +833,9 @@ void init(void)
 #ifdef USE_BARO
     baroStartCalibration();
 #endif
+
     positionInit();
+    autopilotInit();
 
 #if defined(USE_VTX_COMMON) || defined(USE_VTX_CONTROL)
     vtxTableInit();
@@ -860,6 +867,10 @@ void init(void)
 #endif
 
 #endif // VTX_CONTROL
+
+#ifdef USE_GIMBAL
+    gimbalInit();
+#endif
 
     batteryInit(); // always needs doing, regardless of features.
 
@@ -1000,8 +1011,19 @@ void init(void)
     spiInitBusDMA();
 #endif
 
-#ifdef USE_ALT_HOLD_MODE
+// autopilot must be initialised before modes that require the autopilot pids
+#ifdef USE_ALTITUDE_HOLD
     altHoldInit();
+#endif
+
+#ifdef USE_POSITION_HOLD
+    posHoldInit();
+#endif
+
+#ifdef USE_GPS_RESCUE
+    if (featureIsEnabled(FEATURE_GPS)) {
+        gpsRescueInit();
+    }
 #endif
 
     debugInit();

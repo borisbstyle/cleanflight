@@ -51,7 +51,6 @@ extern "C" {
 #include "gtest/gtest.h"
 
 uint32_t testFeatureMask = 0;
-uint16_t testMinThrottle = 0;
 throttleStatus_e throttleStatus = THROTTLE_HIGH;
 
 enum {
@@ -588,7 +587,7 @@ TEST(FlightFailsafeTest, TestFailsafeSwitchModeStage2Land)
     // when
     failsafeUpdateState();
 
-    // now should be in monitoring mode, with switch holding signalReceived false
+    // now should be in monitoring mode, with switch holding rxDataReceived false
     EXPECT_TRUE(failsafeIsActive());
     EXPECT_EQ(FAILSAFE_RX_LOSS_MONITORING, failsafePhase());
     EXPECT_TRUE(isArmingDisabled());
@@ -753,11 +752,6 @@ void disarm(flightLogDisarmReason_e)
 void beeper(beeperMode_e mode)
 {
     UNUSED(mode);
-}
-
-uint16_t getCurrentMinthrottle(void)
-{
-    return testMinThrottle;
 }
 
 bool isUsingSticksForArming(void)

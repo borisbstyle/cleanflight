@@ -30,6 +30,8 @@
 
 #include "platform.h"
 
+#ifdef USE_ACC_SPI_MPU9250
+
 #include "common/axis.h"
 #include "common/maths.h"
 
@@ -48,7 +50,6 @@
 #define MPU9250_MAX_SPI_CLK_HZ 20000000
 
 static void mpu9250AccAndGyroInit(gyroDev_t *gyro);
-
 
 bool mpu9250SpiWriteRegister(const extDevice_t *dev, uint8_t reg, uint8_t data)
 {
@@ -174,3 +175,5 @@ bool mpu9250SpiGyroDetect(gyroDev_t *gyro)
 
     return true;
 }
+
+#endif // USE_ACC_SPI_MPU9250

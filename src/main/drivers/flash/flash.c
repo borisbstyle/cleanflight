@@ -147,8 +147,9 @@ MMFLASH_CODE_NOINLINE static bool flashOctoSpiInit(const flashConfig_t *flashCon
 #endif
 
         for (uint8_t offset = 0; offset <= 1 && !detected; offset++) {
-
+#if defined(USE_FLASH_W25N01G) || defined(USE_FLASH_W25N02K) || defined(USE_FLASH_W25Q128FV) || defined(USE_FLASH_W25M02G)
             uint32_t jedecID = (readIdResponse[offset + 0] << 16) | (readIdResponse[offset + 1] << 8) | (readIdResponse[offset + 2]);
+#endif
 
             if (offset == 0) {
 #if defined(USE_FLASH_W25Q128FV)
@@ -225,7 +226,6 @@ static bool flashQuadSpiInit(const flashConfig_t *flashConfig)
         }
 
         quadSpiSetDivisor(hqspi, QUADSPI_CLOCK_ULTRAFAST);
-
 
         for (uint8_t offset = 0; offset <= 1 && !detected; offset++) {
 
@@ -350,20 +350,23 @@ static bool flashSpiInit(const flashConfig_t *flashConfig)
         return detected;
     }
 
-    spiPreinitByTag(flashConfig->csTag);
-
+    ioPreinitByTag(flashConfig->csTag, IOCFG_IPU, PREINIT_PIN_STATE_HIGH);
     return false;
 }
 #endif // USE_FLASH_SPI
 
-void flashPreInit(const flashConfig_t *flashConfig)
+void flashPreinit(const flashConfig_t *flashConfig)
 {
-    spiPreinitRegister(flashConfig->csTag, IOCFG_IPU, 1);
+    ioPreinitByTag(flashConfig->csTag, IOCFG_IPU, PREINIT_PIN_STATE_HIGH);
 }
 
 bool flashDeviceInit(const flashConfig_t *flashConfig)
 {
     bool haveFlash = false;
+
+#if !defined(USE_FLASH_SPI) && !defined(USE_FLASH_QUADSPI) && !defined(USE_FLASH_OCTOSPI)
+    UNUSED(flashConfig);
+#endif
 
 #ifdef USE_FLASH_SPI
     bool useSpi = (SPI_CFG_TO_DEV(flashConfig->spiDevice) != SPIINVALID);

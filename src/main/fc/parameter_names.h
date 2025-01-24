@@ -43,7 +43,7 @@
 #define PARAM_NAME_RC_SMOOTHING_DEBUG_AXIS "rc_smoothing_debug_axis"
 #define PARAM_NAME_RC_SMOOTHING_ACTIVE_CUTOFFS "rc_smoothing_active_cutoffs_ff_sp_thr"
 #define PARAM_NAME_SERIAL_RX_PROVIDER "serialrx_provider"
-#define PARAM_NAME_DSHOT_IDLE_VALUE "dshot_idle_value"
+#define PARAM_NAME_MOTOR_IDLE "motor_idle"
 #define PARAM_NAME_DSHOT_BIDIR "dshot_bidir"
 #define PARAM_NAME_USE_UNSYNCED_PWM "use_unsynced_pwm"
 #define PARAM_NAME_MOTOR_PWM_PROTOCOL "motor_pwm_protocol"
@@ -58,14 +58,21 @@
 #define PARAM_NAME_TPA_LOW_BREAKPOINT "tpa_low_breakpoint"
 #define PARAM_NAME_TPA_LOW_ALWAYS "tpa_low_always"
 #define PARAM_NAME_TPA_MODE "tpa_mode"
-#define PARAM_NAME_TPA_DELAY_MS "tpa_delay_ms"
-#define PARAM_NAME_TPA_GRAVITY_THR0 "tpa_gravity_thr0"
-#define PARAM_NAME_TPA_GRAVITY_THR100 "tpa_gravity_thr100"
 #define PARAM_NAME_TPA_CURVE_TYPE "tpa_curve_type"
 #define PARAM_NAME_TPA_CURVE_STALL_THROTTLE "tpa_curve_stall_throttle"
 #define PARAM_NAME_TPA_CURVE_PID_THR0 "tpa_curve_pid_thr0"
 #define PARAM_NAME_TPA_CURVE_PID_THR100 "tpa_curve_pid_thr100"
 #define PARAM_NAME_TPA_CURVE_EXPO "tpa_curve_expo"
+#define PARAM_NAME_TPA_SPEED_TYPE "tpa_speed_type"
+#define PARAM_NAME_TPA_SPEED_BASIC_DELAY "tpa_speed_basic_delay"
+#define PARAM_NAME_TPA_SPEED_BASIC_GRAVITY "tpa_speed_basic_gravity"
+#define PARAM_NAME_TPA_SPEED_ADV_PROP_PITCH "tpa_speed_adv_prop_pitch"
+#define PARAM_NAME_TPA_SPEED_ADV_MASS "tpa_speed_adv_mass"
+#define PARAM_NAME_TPA_SPEED_ADV_DRAG_K "tpa_speed_adv_drag_k"
+#define PARAM_NAME_TPA_SPEED_ADV_THRUST "tpa_speed_adv_thrust"
+#define PARAM_NAME_TPA_SPEED_MAX_VOLTAGE "tpa_speed_max_voltage"
+#define PARAM_NAME_TPA_SPEED_PITCH_OFFSET "tpa_speed_pitch_offset"
+#define PARAM_NAME_YAW_TYPE "yaw_type"
 #define PARAM_NAME_MIXER_TYPE "mixer_type"
 #define PARAM_NAME_EZ_LANDING_THRESHOLD "ez_landing_threshold"
 #define PARAM_NAME_EZ_LANDING_LIMIT "ez_landing_limit"
@@ -83,6 +90,7 @@
 #define PARAM_NAME_THROTTLE_LIMIT_TYPE "throttle_limit_type"
 #define PARAM_NAME_THROTTLE_LIMIT_PERCENT "throttle_limit_percent"
 #define PARAM_NAME_GYRO_CAL_ON_FIRST_ARM "gyro_cal_on_first_arm"
+#define PARAM_NAME_PREARM_ALLOW_REARM "prearm_allow_rearm"
 #define PARAM_NAME_DEADBAND "deadband"
 #define PARAM_NAME_YAW_DEADBAND "yaw_deadband"
 #define PARAM_NAME_PID_PROCESS_DENOM "pid_process_denom"
@@ -127,13 +135,12 @@
 #define PARAM_NAME_DYN_IDLE_I_GAIN "dyn_idle_i_gain"
 #define PARAM_NAME_DYN_IDLE_D_GAIN "dyn_idle_d_gain"
 #define PARAM_NAME_DYN_IDLE_MAX_INCREASE "dyn_idle_max_increase"
-#define PARAM_NAME_DYN_IDLE_START_INCREASE "dyn_idle_start_increase"
 #define PARAM_NAME_SIMPLIFIED_PIDS_MODE "simplified_pids_mode"
 #define PARAM_NAME_SIMPLIFIED_MASTER_MULTIPLIER "simplified_master_multiplier"
 #define PARAM_NAME_SIMPLIFIED_I_GAIN "simplified_i_gain"
 #define PARAM_NAME_SIMPLIFIED_D_GAIN "simplified_d_gain"
 #define PARAM_NAME_SIMPLIFIED_PI_GAIN "simplified_pi_gain"
-#define PARAM_NAME_SIMPLIFIED_DMAX_GAIN "simplified_dmax_gain"
+#define PARAM_NAME_SIMPLIFIED_D_MAX_GAIN "simplified_d_max_gain"
 #define PARAM_NAME_SIMPLIFIED_FEEDFORWARD_GAIN "simplified_feedforward_gain"
 #define PARAM_NAME_SIMPLIFIED_PITCH_D_GAIN "simplified_pitch_d_gain"
 #define PARAM_NAME_SIMPLIFIED_PITCH_PI_GAIN "simplified_pitch_pi_gain"
@@ -148,12 +155,27 @@
 #define PARAM_NAME_RPM_FILTER_MIN_HZ "rpm_filter_min_hz"
 #define PARAM_NAME_RPM_FILTER_FADE_RANGE_HZ "rpm_filter_fade_range_hz"
 #define PARAM_NAME_RPM_FILTER_LPF_HZ "rpm_filter_lpf_hz"
+
 #define PARAM_NAME_ALTITUDE_SOURCE "altitude_source"
 #define PARAM_NAME_ALTITUDE_PREFER_BARO "altitude_prefer_baro"
 #define PARAM_NAME_ALTITUDE_LPF "altitude_lpf"
 #define PARAM_NAME_ALTITUDE_D_LPF "altitude_d_lpf"
+
 #define PARAM_NAME_HOVER_THROTTLE "hover_throttle"
 #define PARAM_NAME_LANDING_ALTITUDE "landing_altitude_m"
+#define PARAM_NAME_THROTTLE_MIN "autopilot_throttle_min"
+#define PARAM_NAME_THROTTLE_MAX "autopilot_throttle_max"
+#define PARAM_NAME_ALTITUDE_P "autopilot_altitude_P"
+#define PARAM_NAME_ALTITUDE_I "autopilot_altitude_I"
+#define PARAM_NAME_ALTITUDE_D "autopilot_altitude_D"
+#define PARAM_NAME_ALTITUDE_F "autopilot_altitude_F"
+#define PARAM_NAME_POSITION_P "autopilot_position_P"
+#define PARAM_NAME_POSITION_I "autopilot_position_I"
+#define PARAM_NAME_POSITION_D "autopilot_position_D"
+#define PARAM_NAME_POSITION_A "autopilot_position_A"
+#define PARAM_NAME_POSITION_CUTOFF "autopilot_position_cutoff"
+#define PARAM_NAME_AP_MAX_ANGLE "autopilot_max_angle"
+
 #define PARAM_NAME_ANGLE_FEEDFORWARD "angle_feedforward"
 #define PARAM_NAME_ANGLE_FF_SMOOTHING_MS "angle_feedforward_smoothing_ms"
 #define PARAM_NAME_ANGLE_LIMIT "angle_limit"
@@ -162,12 +184,22 @@
 #define PARAM_NAME_S_YAW "s_yaw"
 #define PARAM_NAME_ANGLE_P_GAIN "angle_p_gain"
 #define PARAM_NAME_ANGLE_EARTH_REF "angle_earth_ref"
+#define PARAM_NAME_ANGLE_PITCH_OFFSET "angle_pitch_offset"
 
 #define PARAM_NAME_HORIZON_LEVEL_STRENGTH "horizon_level_strength"
 #define PARAM_NAME_HORIZON_LIMIT_DEGREES "horizon_limit_degrees"
 #define PARAM_NAME_HORIZON_LIMIT_STICKS "horizon_limit_sticks"
 #define PARAM_NAME_HORIZON_IGNORE_STICKS "horizon_ignore_sticks"
 #define PARAM_NAME_HORIZON_DELAY_MS "horizon_delay_ms"
+
+#define PARAM_NAME_CHIRP_LAG_FREQ_HZ "chirp_lag_freq_hz"
+#define PARAM_NAME_CHIRP_LEAD_FREQ_HZ "chirp_lead_freq_hz"
+#define PARAM_NAME_CHIRP_AMPLITUDE_ROLL "chirp_amplitude_roll"
+#define PARAM_NAME_CHIRP_AMPLITUDE_PITCH "chirp_amplitude_pitch"
+#define PARAM_NAME_CHIRP_AMPLITUDE_YAW "chirp_amplitude_yaw"
+#define PARAM_NAME_CHIRP_FREQUENCY_START_DECI_HZ "chirp_frequency_start_deci_hz"
+#define PARAM_NAME_CHIRP_FREQUENCY_END_DECI_HZ "chirp_frequency_end_deci_hz"
+#define PARAM_NAME_CHIRP_TIME_SECONDS "chirp_time_seconds"
 
 #ifdef USE_GPS
 #define PARAM_NAME_GPS_PROVIDER "gps_provider"
@@ -201,16 +233,10 @@
 #define PARAM_NAME_GPS_RESCUE_DESCEND_RATE "gps_rescue_descend_rate"
 #define PARAM_NAME_GPS_RESCUE_DISARM_THRESHOLD "gps_rescue_disarm_threshold"
 
-#define PARAM_NAME_GPS_RESCUE_THROTTLE_MIN "gps_rescue_throttle_min"
-#define PARAM_NAME_GPS_RESCUE_THROTTLE_MAX "gps_rescue_throttle_max"
-
 #define PARAM_NAME_GPS_RESCUE_SANITY_CHECKS "gps_rescue_sanity_checks"
 #define PARAM_NAME_GPS_RESCUE_MIN_SATS "gps_rescue_min_sats"
 #define PARAM_NAME_GPS_RESCUE_ALLOW_ARMING_WITHOUT_FIX "gps_rescue_allow_arming_without_fix"
 
-#define PARAM_NAME_GPS_RESCUE_THROTTLE_P "gps_rescue_throttle_p"
-#define PARAM_NAME_GPS_RESCUE_THROTTLE_I "gps_rescue_throttle_i"
-#define PARAM_NAME_GPS_RESCUE_THROTTLE_D "gps_rescue_throttle_d"
 #define PARAM_NAME_GPS_RESCUE_VELOCITY_P "gps_rescue_velocity_p"
 #define PARAM_NAME_GPS_RESCUE_VELOCITY_I "gps_rescue_velocity_i"
 #define PARAM_NAME_GPS_RESCUE_VELOCITY_D "gps_rescue_velocity_d"
@@ -231,19 +257,21 @@
 
 #endif // USE_GPS
 
-#ifdef USE_ALT_HOLD_MODE
-#define PARAM_NAME_ALT_HOLD_P "alt_hold_p"
-#define PARAM_NAME_ALT_HOLD_I "alt_hold_i"
-#define PARAM_NAME_ALT_HOLD_D "alt_hold_d"
-#define PARAM_NAME_ALT_HOLD_THROTTLE_MIN "alt_hold_throttle_min"
-#define PARAM_NAME_ALT_HOLD_THROTTLE_MAX "alt_hold_throttle_max"
-#define PARAM_NAME_ALT_HOLD_TARGET_ADJUST_RATE "alt_hold_target_adjust_rate"
-#endif // USE_ALT_HOLD_MODE
+#ifdef USE_ALTITUDE_HOLD
+#define PARAM_NAME_ALT_HOLD_DEADBAND "alt_hold_deadband"
+#define PARAM_NAME_ALT_HOLD_THROTTLE_RESPONSE "alt_hold_throttle_response"
+#endif
+
+#ifdef USE_POSITION_HOLD
+#define PARAM_NAME_POS_HOLD_WITHOUT_MAG "pos_hold_without_mag"
+#define PARAM_NAME_POS_HOLD_DEADBAND "pos_hold_deadband"
+#endif
 
 #define PARAM_NAME_IMU_DCM_KP "imu_dcm_kp"
 #define PARAM_NAME_IMU_DCM_KI "imu_dcm_ki"
 #define PARAM_NAME_IMU_SMALL_ANGLE "small_angle"
 #define PARAM_NAME_IMU_PROCESS_DENOM "imu_process_denom"
+
 #ifdef USE_MAG
 #define PARAM_NAME_IMU_MAG_DECLINATION "mag_declination"
 #endif

@@ -106,13 +106,6 @@ pidProfile_t *currentPidProfile;
 #define RX_SPI_DEFAULT_PROTOCOL 0
 #endif
 
-PG_REGISTER_WITH_RESET_TEMPLATE(pilotConfig_t, pilotConfig, PG_PILOT_CONFIG, 2);
-
-PG_RESET_TEMPLATE(pilotConfig_t, pilotConfig,
-    .craftName = { 0 },
-    .pilotName = { 0 },
-);
-
 PG_REGISTER_WITH_RESET_TEMPLATE(systemConfig_t, systemConfig, PG_SYSTEM_CONFIG, 3);
 
 PG_RESET_TEMPLATE(systemConfig_t, systemConfig,
@@ -147,11 +140,6 @@ static void loadPidProfile(void)
 uint8_t getCurrentControlRateProfileIndex(void)
 {
     return systemConfig()->activeRateProfile;
-}
-
-uint16_t getCurrentMinthrottle(void)
-{
-    return motorConfig()->minthrottle;
 }
 
 void resetConfig(void)
@@ -275,10 +263,10 @@ static void validateAndFixConfig(void)
             pidProfilesMutable(i)->auto_profile_cell_count = AUTO_PROFILE_CELL_COUNT_STAY;
         }
 
-        // If the d_min value for any axis is >= the D gain then reset d_min to 0 for consistent Configurator behavior
+        // If the d_max value for any axis is <= the D gain then reset d_max to 0 for consistent Configurator behavior
         for (unsigned axis = 0; axis <= FD_YAW; axis++) {
-            if (pidProfilesMutable(i)->d_min[axis] > pidProfilesMutable(i)->pid[axis].D) {
-                pidProfilesMutable(i)->d_min[axis] = 0;
+            if (pidProfilesMutable(i)->d_max[axis] < pidProfilesMutable(i)->pid[axis].D) {
+                pidProfilesMutable(i)->d_max[axis] = 0;
             }
         }
 
@@ -421,11 +409,16 @@ static void validateAndFixConfig(void)
     if (systemConfig()->configurationState == CONFIGURATION_STATE_UNCONFIGURED) {
         // enable some compiled-in features by default
         uint32_t autoFeatures =
-            FEATURE_OSD | FEATURE_LED_STRIP
-#if defined(SOFTSERIAL1_RX_PIN) || defined(SOFTSERIAL2_RX_PIN) || defined(SOFTSERIAL1_TX_PIN) || defined(SOFTSERIAL2_TX_PIN)
-            | FEATURE_SOFTSERIAL
+            FEATURE_OSD | FEATURE_LED_STRIP;
+#if defined(USE_SOFTSERIAL)
+        // enable softserial if at least one pin is configured
+        for (unsigned i = RESOURCE_SOFTSERIAL_OFFSET; i < RESOURCE_SOFTSERIAL_OFFSET + RESOURCE_SOFTSERIAL_COUNT; i++) {
+            if (serialPinConfig()->ioTagTx[i] || serialPinConfig()->ioTagRx[i]) {
+                autoFeatures |= FEATURE_SOFTSERIAL;
+                break;
+            }
+        }
 #endif
-            ;
         featureEnableImmediate(autoFeatures & featuresSupportedByBuild);
     }
 
@@ -535,12 +528,11 @@ static void validateAndFixConfig(void)
     // Find the first serial port on which MSP Displayport is enabled
     displayPortMspSetSerial(SERIAL_PORT_NONE);
 
-    for (uint8_t serialPort  = 0; serialPort < SERIAL_PORT_COUNT; serialPort++) {
-        const serialPortConfig_t *portConfig = &serialConfig()->portConfigs[serialPort];
-
-        if (portConfig &&
-            (portConfig->identifier != SERIAL_PORT_USB_VCP) &&
-            ((portConfig->functionMask & (FUNCTION_VTX_MSP | FUNCTION_MSP)) == (FUNCTION_VTX_MSP | FUNCTION_MSP))) {
+    for (const serialPortConfig_t *portConfig = serialConfig()->portConfigs;
+         portConfig < ARRAYEND(serialConfig()->portConfigs);
+         portConfig++) {
+        if ((portConfig->identifier != SERIAL_PORT_USB_VCP)
+            && ((portConfig->functionMask & (FUNCTION_VTX_MSP | FUNCTION_MSP)) == (FUNCTION_VTX_MSP | FUNCTION_MSP))) {
             displayPortMspSetSerial(portConfig->identifier);
             break;
         }
@@ -594,7 +586,7 @@ void validateAndFixGyroConfig(void)
          */
         if (true
 #ifdef USE_PID_DENOM_OVERCLOCK_LEVEL
-        && (systemConfig()->cpu_overclock < USE_PID_DENOM_OVERCLOCK_LEVEL) 
+        && (systemConfig()->cpu_overclock < USE_PID_DENOM_OVERCLOCK_LEVEL)
 #endif
         && motorConfig()->dev.useDshotTelemetry
         ) {

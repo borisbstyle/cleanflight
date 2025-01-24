@@ -24,7 +24,7 @@
 #include "gtest/gtest.h"
 #include "build/debug.h"
 
-bool simulatedAirmodeEnabled = true;
+bool simulatedThrottleRaised = true;
 float simulatedSetpointRate[3] = { 0,0,0 };
 float simulatedPrevSetpointRate[3] = { 0,0,0 };
 float simulatedRcDeflection[3] = { 0,0,0 };
@@ -93,7 +93,7 @@ extern "C" {
 
     float getMotorMixRange(void) { return simulatedMotorMixRange; }
     float getSetpointRate(int axis) { return simulatedSetpointRate[axis]; }
-    bool isAirmodeActivated(void) { return simulatedAirmodeEnabled; }
+    bool wasThrottleRaised(void) { return simulatedThrottleRaised; }
     float getRcDeflectionAbs(int axis) { return fabsf(simulatedRcDeflection[axis]); }
 
     // used by auto-disarm code
@@ -101,7 +101,7 @@ extern "C" {
     float mixerGetRcThrottle() { return fabsf(simulatedMixerGetRcThrottle); }
 
 
-    bool isAltitudeLow(void) { return false; }
+    bool isBelowLandingAltitude(void) { return false; }
 
     void systemBeep(bool) { }
     bool gyroOverflowDetected(void) { return false; }
@@ -1068,22 +1068,22 @@ TEST(pidControllerTest, testTpaClassic)
 
     pidInit(pidProfile);
 
-    pidUpdateTpaFactor(0.0f, pidProfile);
+    pidUpdateTpaFactor(0.0f);
     EXPECT_FLOAT_EQ(1.5f, pidRuntime.tpaFactor);
 
-    pidUpdateTpaFactor(0.1f, pidProfile);
+    pidUpdateTpaFactor(0.1f);
     EXPECT_FLOAT_EQ(1.25f, pidRuntime.tpaFactor);
 
-    pidUpdateTpaFactor(0.2f, pidProfile);
+    pidUpdateTpaFactor(0.2f);
     EXPECT_FLOAT_EQ(1.0f, pidRuntime.tpaFactor);
 
-    pidUpdateTpaFactor(0.6f, pidProfile);
+    pidUpdateTpaFactor(0.6f);
     EXPECT_FLOAT_EQ(1.0f, pidRuntime.tpaFactor);
 
-    pidUpdateTpaFactor(0.8f, pidProfile);
+    pidUpdateTpaFactor(0.8f);
     EXPECT_FLOAT_EQ(0.85f, pidRuntime.tpaFactor);
 
-    pidUpdateTpaFactor(1.0f, pidProfile);
+    pidUpdateTpaFactor(1.0f);
     EXPECT_FLOAT_EQ(0.7f, pidRuntime.tpaFactor);
 
 
@@ -1096,22 +1096,22 @@ TEST(pidControllerTest, testTpaClassic)
 
     pidInit(pidProfile);
 
-    pidUpdateTpaFactor(0.0f, pidProfile);
+    pidUpdateTpaFactor(0.0f);
     EXPECT_FLOAT_EQ(1.0f, pidRuntime.tpaFactor);
 
-    pidUpdateTpaFactor(0.1f, pidProfile);
+    pidUpdateTpaFactor(0.1f);
     EXPECT_FLOAT_EQ(1.0f, pidRuntime.tpaFactor);
 
-    pidUpdateTpaFactor(0.2f, pidProfile);
+    pidUpdateTpaFactor(0.2f);
     EXPECT_FLOAT_EQ(1.0f, pidRuntime.tpaFactor);
 
-    pidUpdateTpaFactor(0.6f, pidProfile);
+    pidUpdateTpaFactor(0.6f);
     EXPECT_FLOAT_EQ(1.0f, pidRuntime.tpaFactor);
 
-    pidUpdateTpaFactor(0.8f, pidProfile);
+    pidUpdateTpaFactor(0.8f);
     EXPECT_FLOAT_EQ(0.85f, pidRuntime.tpaFactor);
 
-    pidUpdateTpaFactor(1.0f, pidProfile);
+    pidUpdateTpaFactor(1.0f);
     EXPECT_FLOAT_EQ(0.7f, pidRuntime.tpaFactor);
 }
 
@@ -1128,19 +1128,19 @@ TEST(pidControllerTest, testTpaHyperbolic)
 
     pidInit(pidProfile);
 
-    pidUpdateTpaFactor(0.0f, pidProfile);
+    pidUpdateTpaFactor(0.0f);
     EXPECT_FLOAT_EQ(5.0f, pidRuntime.tpaFactor);
 
-    pidUpdateTpaFactor(0.15f, pidProfile);
+    pidUpdateTpaFactor(0.15f);
     EXPECT_FLOAT_EQ(5.0f, pidRuntime.tpaFactor);
 
-    pidUpdateTpaFactor(0.5, pidProfile);
+    pidUpdateTpaFactor(0.5);
     EXPECT_NEAR(2.588f, pidRuntime.tpaFactor, 0.01f);
 
-    pidUpdateTpaFactor(0.9, pidProfile);
+    pidUpdateTpaFactor(0.9);
     EXPECT_NEAR(0.693f, pidRuntime.tpaFactor, 0.01f);
 
-    pidUpdateTpaFactor(1.0, pidProfile);
+    pidUpdateTpaFactor(1.0);
     EXPECT_NEAR(0.5f, pidRuntime.tpaFactor, 0.01f);
 
     // linear curve
@@ -1152,19 +1152,19 @@ TEST(pidControllerTest, testTpaHyperbolic)
 
     pidInit(pidProfile);
 
-    pidUpdateTpaFactor(0.0f, pidProfile);
+    pidUpdateTpaFactor(0.0f);
     EXPECT_FLOAT_EQ(3.0f, pidRuntime.tpaFactor);
 
-    pidUpdateTpaFactor(0.15f, pidProfile);
+    pidUpdateTpaFactor(0.15f);
     EXPECT_NEAR(2.565f, pidRuntime.tpaFactor, 0.01f);
 
-    pidUpdateTpaFactor(0.5, pidProfile);
+    pidUpdateTpaFactor(0.5);
     EXPECT_NEAR(1.550f, pidRuntime.tpaFactor, 0.01f);
 
-    pidUpdateTpaFactor(0.9, pidProfile);
+    pidUpdateTpaFactor(0.9);
     EXPECT_NEAR(0.390f, pidRuntime.tpaFactor, 0.01f);
 
-    pidUpdateTpaFactor(1.0, pidProfile);
+    pidUpdateTpaFactor(1.0);
     EXPECT_NEAR(0.1f, pidRuntime.tpaFactor, 0.01f);
 
     // curve bends up
@@ -1176,19 +1176,19 @@ TEST(pidControllerTest, testTpaHyperbolic)
 
     pidInit(pidProfile);
 
-    pidUpdateTpaFactor(0.0f, pidProfile);
+    pidUpdateTpaFactor(0.0f);
     EXPECT_FLOAT_EQ(10.0f, pidRuntime.tpaFactor);
 
-    pidUpdateTpaFactor(0.15f, pidProfile);
+    pidUpdateTpaFactor(0.15f);
     EXPECT_NEAR(10.0f, pidRuntime.tpaFactor, 0.01f);
 
-    pidUpdateTpaFactor(0.5, pidProfile);
+    pidUpdateTpaFactor(0.5);
     EXPECT_NEAR(9.700f, pidRuntime.tpaFactor, 0.01f);
 
-    pidUpdateTpaFactor(0.9, pidProfile);
+    pidUpdateTpaFactor(0.9);
     EXPECT_NEAR(7.364f, pidRuntime.tpaFactor, 0.01f);
 
-    pidUpdateTpaFactor(1.0, pidProfile);
+    pidUpdateTpaFactor(1.0);
     EXPECT_NEAR(0.625f, pidRuntime.tpaFactor, 0.01f);
 
     // curve bends down
@@ -1200,18 +1200,18 @@ TEST(pidControllerTest, testTpaHyperbolic)
 
     pidInit(pidProfile);
 
-    pidUpdateTpaFactor(0.0f, pidProfile);
+    pidUpdateTpaFactor(0.0f);
     EXPECT_FLOAT_EQ(2.5f, pidRuntime.tpaFactor);
 
-    pidUpdateTpaFactor(0.15f, pidProfile);
+    pidUpdateTpaFactor(0.15f);
     EXPECT_NEAR(2.5f, pidRuntime.tpaFactor, 0.01f);
 
-    pidUpdateTpaFactor(0.5, pidProfile);
+    pidUpdateTpaFactor(0.5);
     EXPECT_NEAR(2.5f, pidRuntime.tpaFactor, 0.01f);
 
-    pidUpdateTpaFactor(0.9, pidProfile);
+    pidUpdateTpaFactor(0.9);
     EXPECT_NEAR(0.954f, pidRuntime.tpaFactor, 0.01f);
 
-    pidUpdateTpaFactor(1.0, pidProfile);
+    pidUpdateTpaFactor(1.0);
     EXPECT_NEAR(0.9f, pidRuntime.tpaFactor, 0.01f);
 }

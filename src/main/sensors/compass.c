@@ -115,7 +115,7 @@ void pgResetFn_compassConfig(compassConfig_t *compassConfig)
 // 2. I2C devices are will be handled by address = 0 (per device default).
 // 3. Slave I2C device on SPI gyro
 
-#if defined(USE_SPI_MAG) && (defined(USE_MAG_SPI_HMC5883) || defined(USE_MAG_SPI_AK8963))
+#if defined(USE_SPI_MAG) && (defined(USE_MAG_SPI_HMC5883) || defined(USE_MAG_SPI_AK8963) || defined(USE_MAG_SPI_LIS3MDL))
     compassConfig->mag_busType = BUS_TYPE_SPI;
     compassConfig->mag_spi_device = SPI_DEV_TO_CFG(spiDeviceByInstance(MAG_SPI_INSTANCE));
     compassConfig->mag_spi_csn = IO_TAG(MAG_CS_PIN);
@@ -245,7 +245,7 @@ bool compassDetect(magDev_t *magDev, uint8_t *alignment)
         FALLTHROUGH;
 
     case MAG_LIS3MDL:
-#if defined(USE_MAG_LIS3MDL)
+#if defined(USE_MAG_LIS3MDL)|| defined(USE_MAG_SPI_LIS3MDL)
         if (dev->bus->busType == BUS_TYPE_I2C) {
             dev->busType_u.i2c.address = compassConfig()->mag_i2c_address;
         }

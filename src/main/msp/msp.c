@@ -1371,7 +1371,8 @@ case MSP_NAME:
 
         // added in 1.43
         sbufWriteU8(dst, currentControlRateProfile->rates_type);
-
+        
+        // added in 1.47
         sbufWriteU8(dst, currentControlRateProfile->thrHover8);
         
         break;
@@ -2816,7 +2817,6 @@ static mspResult_e mspProcessInCommand(mspDescriptor_t srcDesc, int16_t cmdMSP, 
             sbufReadU8(src);    // tpa_rate is moved to PID profile
             currentControlRateProfile->thrMid8 = sbufReadU8(src);
             currentControlRateProfile->thrExpo8 = sbufReadU8(src);
-            currentControlRateProfile->thrHover8 = sbufReadU8(src);
             sbufReadU16(src);   // tpa_breakpoint is moved to PID profile
 
             if (sbufBytesRemaining(src) >= 1) {
@@ -2852,6 +2852,9 @@ static mspResult_e mspProcessInCommand(mspDescriptor_t srcDesc, int16_t cmdMSP, 
             if (sbufBytesRemaining(src) >= 1) {
                 currentControlRateProfile->rates_type = sbufReadU8(src);
             }
+
+            // version 1.47
+            currentControlRateProfile->thrHover8 = sbufReadU8(src);
 
             initRcProcessing();
         } else {
